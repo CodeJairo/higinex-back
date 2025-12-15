@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   InternalServerErrorException,
   Logger,
   NotFoundException,
@@ -22,6 +23,8 @@ export function handlePrismaError(
     context = 'unknown',
     defaultMessage = 'Internal server error',
   } = options;
+
+  if (error instanceof HttpException) throw error;
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     switch (error.code) {

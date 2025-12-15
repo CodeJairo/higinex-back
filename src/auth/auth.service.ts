@@ -1,9 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { LoginUserResponse } from './dto/login-user-response.interface';
+import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
 
 @Injectable()
@@ -35,6 +43,44 @@ export class AuthService {
         logger: this.logger,
         context: 'AuthService.register',
         defaultMessage: 'Failed to register user',
+      });
+    }
+  }
+
+  async login(loginUserDto: LoginUserDto) {
+    const { email, password } = loginUserDto;
+
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: {
+          email,
+        },
+        include: { customer: true },
+      });
+
+      if (!user) throw new BadRequestException('User not found');
+
+      if (user.isActive === false)
+        throw new ForbiddenException('User account is inactive');
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid)
+        throw new UnauthorizedException('Invalid credentials - password');
+
+      const loginUserResponse: LoginUserResponse = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        customer: user.customer || undefined,
+      };
+
+      return loginUserResponse;
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'AuthService.login',
+        defaultMessage: 'Failed to login user',
       });
     }
   }
