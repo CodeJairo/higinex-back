@@ -6,15 +6,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { LoginUserResponse } from './interfaces/login-user-response.interface';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
-import { UserJwtPayload } from './interfaces/jwt-payload.interface';
-import { JwtService } from '@nestjs/jwt';
+import {
+  RefreshJwtPayload,
+  UserJwtPayload,
+} from './interfaces/jwt-payload.interface';
+import { LoginUserResponse } from './interfaces/login-user-response.interface';
 
 @Injectable()
 export class AuthService {
@@ -37,10 +41,11 @@ export class AuthService {
         ...(customer && { customer: { create: customer } }),
       };
 
-      return await this.prisma.user.create({
+      await this.prisma.user.create({
         data,
         include: { customer: true },
       });
+      return { message: 'User registered successfully' };
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -70,13 +75,20 @@ export class AuthService {
       if (!isPasswordValid)
         throw new UnauthorizedException('Invalid credentials - password');
 
-      const loginUserResponse: LoginUserResponse = {
+      const { accessToken, refreshToken } = await this.issueTokens({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+      const loginUserResponse: LoginUserResponse & { refreshToken: string } = {
         id: user.id,
         email: user.email,
         role: user.role,
         isActive: user.isActive,
         customer: user.customer || undefined,
-        accessToken: await this.getJwtToken(user),
+        accessToken,
+        refreshToken,
       };
 
       return loginUserResponse;
@@ -89,8 +101,58 @@ export class AuthService {
     }
   }
 
-  private async getJwtToken(payload: UserJwtPayload): Promise<string> {
+  async refresh(refreshToken: string | undefined) {
+    if (!refreshToken) throw new UnauthorizedException('Missing refresh token');
+
+    const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
+
+    let payload: RefreshJwtPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<RefreshJwtPayload>(
+        refreshToken,
+        { secret },
+      );
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (payload.tokenType !== 'refresh')
+      throw new UnauthorizedException('Invalid refresh token');
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      omit: { password: true },
+    });
+
+    if (!user || !user.isActive)
+      throw new UnauthorizedException('Invalid refresh token');
+
+    return this.issueTokens({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+  }
+
+  private async issueTokens(user: UserJwtPayload) {
+    const accessToken = await this.getAccessToken(user);
+    const refreshToken = await this.getRefreshToken(user.id);
+    return { accessToken, refreshToken };
+  }
+
+  private async getAccessToken(payload: UserJwtPayload): Promise<string> {
     const { id, email, role } = payload;
     return this.jwtService.signAsync({ id, email, role });
+  }
+
+  private async getRefreshToken(userId: string): Promise<string> {
+    const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
+    const expiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN');
+
+    return this.jwtService.signAsync<RefreshJwtPayload>(
+      { sub: userId, tokenType: 'refresh', jti: randomUUID() },
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      { secret, expiresIn: expiresIn as any },
+    );
   }
 }

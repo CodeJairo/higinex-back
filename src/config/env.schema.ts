@@ -11,6 +11,14 @@ export const envConfigSchema = Joi.object({
 
   JWT_SECRET: Joi.string().min(16).required(),
   JWT_EXPIRES_IN: Joi.string().required(),
+  JWT_REFRESH_SECRET: Joi.string().min(16).default(Joi.ref('JWT_SECRET')),
+  JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+
+  CORS_ORIGINS: Joi.string().default(''),
+
+  AUTH_REFRESH_COOKIE_NAME: Joi.string().required(),
+  AUTH_COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').required(),
+  AUTH_COOKIE_SECURE: Joi.boolean().truthy('true').falsy('false').required(),
 
   SALT_ROUNDS: Joi.number().integer().min(8).max(15).required(),
 

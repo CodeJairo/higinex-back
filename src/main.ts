@@ -8,6 +8,18 @@ async function bootstrap() {
   app.disable('x-powered-by');
   app.setGlobalPrefix('api/v1');
 
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (corsOrigins.length > 0) {
+    app.enableCors({
+      origin: corsOrigins,
+      credentials: true,
+    });
+  }
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

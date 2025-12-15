@@ -5,5 +5,7 @@ import { UserRoleGuard } from '../guards/user-role.guard';
 import { Roles } from './roles.decorator';
 
 export function Auth(...roles: Role[]) {
-  return applyDecorators(Roles(roles), UseGuards(AuthGuard(), UserRoleGuard));
+  const decorators = [UseGuards(AuthGuard(), UserRoleGuard)];
+  if (roles.length > 0) decorators.unshift(Roles(roles));
+  return applyDecorators(...decorators);
 }
