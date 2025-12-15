@@ -8,10 +8,12 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { LowerTrim, Trim } from 'src/common/decorators/transforms.decorator';
 import { CreateCustomerDto } from './create-customer.dto';
 
 export class RegisterUserDto {
   @IsEmail()
+  @LowerTrim()
   email: string;
 
   @IsString()
@@ -21,6 +23,7 @@ export class RegisterUserDto {
     message:
       'The password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
+  @Trim()
   password: string;
 
   @IsOptional()
