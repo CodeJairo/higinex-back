@@ -10,9 +10,11 @@ import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { LoginUserResponse } from './dto/login-user-response.interface';
+import { LoginUserResponse } from './interfaces/login-user-response.interface';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
+import { UserJwtPayload } from './interfaces/jwt-payload.interface';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +22,7 @@ export class AuthService {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -73,6 +76,7 @@ export class AuthService {
         role: user.role,
         isActive: user.isActive,
         customer: user.customer || undefined,
+        accessToken: await this.getJwtToken(user),
       };
 
       return loginUserResponse;
@@ -83,5 +87,10 @@ export class AuthService {
         defaultMessage: 'Failed to login user',
       });
     }
+  }
+
+  private async getJwtToken(payload: UserJwtPayload): Promise<string> {
+    const { id, email, role } = payload;
+    return this.jwtService.signAsync({ id, email, role });
   }
 }

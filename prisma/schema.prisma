@@ -112,11 +112,11 @@ model User {
 
 model Customer {
   id             String            @id @default(uuid())
-  email          String
+  email          String            @unique
   phone          String
   name           String
   documentType   DocumentType
-  documentNumber String
+  documentNumber String            @unique
   userId         String?           @unique
   user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt      DateTime          @default(now())

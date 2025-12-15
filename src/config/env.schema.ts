@@ -9,6 +9,9 @@ export const envConfigSchema = Joi.object({
 
   DATABASE_URL: Joi.string().uri().required(),
 
+  JWT_SECRET: Joi.string().min(16).required(),
+  JWT_EXPIRES_IN: Joi.string().required(),
+
   SALT_ROUNDS: Joi.number().integer().min(8).max(15).required(),
 
   SEED_ADMIN: Joi.boolean().truthy('true').falsy('false').default(false),

@@ -5,5 +5,6 @@ export interface LoginUserResponse {
   email: string;
   role: Role;
   isActive: boolean;
+  accessToken: string;
   customer?: object;
 }
