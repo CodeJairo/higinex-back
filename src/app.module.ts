@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { SeedModule } from './seed/seed.module';
 import { ConfigModule } from '@nestjs/config';
 import { envConfigSchema } from './config/env.schema';
+import { ProductsModule } from './products/products.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { envConfigSchema } from './config/env.schema';
     PrismaModule,
     AuthModule,
     SeedModule,
+    ProductsModule,
   ],
 })
 export class AppModule {}
