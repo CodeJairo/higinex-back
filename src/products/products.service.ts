@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductStatus } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import {
   GetAllProductQueryDto,
@@ -107,6 +108,71 @@ export class ProductsService {
         logger: this.logger,
         context: 'ProductsService.updateProduct',
         defaultMessage: 'Failed to update product',
+      });
+    }
+  }
+
+  async createProductVariant(
+    productId: string,
+    createProductVariantDto: CreateProductVariantDto,
+  ) {
+    try {
+      const { sku, gtin, name, attributesJson, initialOnHand } =
+        createProductVariantDto;
+
+      return await this.prisma.$transaction(async (tx) => {
+        const product = await tx.product.findFirst({
+          where: { id: productId, deletedAt: null },
+          select: { id: true },
+        });
+
+        if (!product) throw new NotFoundException('Product not found');
+
+        const variant = await tx.productVariant.create({
+          data: {
+            productId,
+            sku,
+            gtin,
+            name,
+            attributesJson,
+          },
+        });
+
+        await tx.inventoryBalance.create({
+          data: {
+            variantId: variant.id,
+            onHand: 0,
+          },
+        });
+
+        if (typeof initialOnHand === 'number' && initialOnHand > 0) {
+          await tx.inventoryMovement.create({
+            data: {
+              variantId: variant.id,
+              type: 'IN',
+              quantity: initialOnHand,
+              reason: 'Initial stock',
+            },
+          });
+
+          await tx.inventoryBalance.update({
+            where: { variantId: variant.id },
+            data: {
+              onHand: { increment: initialOnHand },
+            },
+          });
+        }
+
+        return await tx.productVariant.findUnique({
+          where: { id: variant.id },
+          include: { inventory: true },
+        });
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.createProductVariant',
+        defaultMessage: 'Failed to create product variant',
       });
     }
   }
