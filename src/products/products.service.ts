@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ProductStatus } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import {
+  GetAllProductQueryDto,
+  ProductStatusParam,
+} from './dto/get-all-product-query.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -20,6 +26,87 @@ export class ProductsService {
         logger: this.logger,
         context: 'ProductsService.createProduct',
         defaultMessage: 'Failed to create product',
+      });
+    }
+  }
+
+  async getAllProducts({
+    status = ProductStatusParam.PUBLISHED,
+    limit = 10,
+    offset = 0,
+  }: GetAllProductQueryDto) {
+    try {
+      return await this.prisma.product.findMany({
+        where:
+          status === ProductStatusParam.ALL
+            ? undefined
+            : {
+                status:
+                  status === ProductStatusParam.PUBLISHED
+                    ? ProductStatus.PUBLISHED
+                    : ProductStatus.ARCHIVED,
+              },
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.getAllProducts',
+        defaultMessage: 'Failed to retrieve products',
+      });
+    }
+  }
+
+  async setProductPublished(id: string) {
+    try {
+      await this.prisma.product.update({
+        where: { id },
+        data: {
+          status: ProductStatus.PUBLISHED,
+        },
+      });
+      return { message: 'Product set as published successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.setProductPublished',
+        defaultMessage: 'Failed to set product as published',
+      });
+    }
+  }
+
+  async setProductArchived(id: string) {
+    try {
+      await this.prisma.product.update({
+        where: { id },
+        data: {
+          status: ProductStatus.ARCHIVED,
+        },
+      });
+      return { message: 'Product set as archived successfully ' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.setProductArchived',
+        defaultMessage: 'Failed to set product as archived',
+      });
+    }
+  }
+
+  async updateProduct(id: string, updateProductDto: UpdateProductDto) {
+    try {
+      await this.prisma.product.update({
+        where: { id },
+        data: updateProductDto,
+      });
+      return { message: 'Product updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.updateProduct',
+        defaultMessage: 'Failed to update product',
       });
     }
   }
