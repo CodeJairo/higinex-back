@@ -50,4 +50,9 @@ export class ProductsController {
   ) {
     return await this.productsService.updateProduct(id, updateProductDto);
   }
+
+  @Get('list-variants/:id')
+  async listProductVariants(@Param('id', ParseUUIDPipe) id: string) {
+    return await this.productsService.listProductVariants(id);
+  }
 }

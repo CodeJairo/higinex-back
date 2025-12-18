@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductStatus } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -107,6 +107,53 @@ export class ProductsService {
         logger: this.logger,
         context: 'ProductsService.updateProduct',
         defaultMessage: 'Failed to update product',
+      });
+    }
+  }
+
+  async listProductVariants(productId: string) {
+    try {
+      const product = await this.prisma.product.findFirst({
+        where: { id: productId, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (!product) throw new NotFoundException('Product not found');
+
+      return await this.prisma.productVariant.findMany({
+        where: { productId, deletedAt: null, isActive: true },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          productId: true,
+          sku: true,
+          gtin: true,
+          name: true,
+          attributesJson: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          images: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              altText: true,
+              sortOrder: true,
+              createdAt: true,
+              mimeType: true,
+              filename: true,
+            },
+          },
+          inventory: {
+            select: { onHand: true, reserved: true, updatedAt: true },
+          },
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsService.listProductVariants',
+        defaultMessage: 'Failed to list product variants',
       });
     }
   }

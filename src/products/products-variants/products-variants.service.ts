@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
+import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 
 @Injectable()
 export class ProductsVariantsService {
@@ -73,18 +74,10 @@ export class ProductsVariantsService {
     }
   }
 
-  async listProductVariants(productId: string) {
+  async getProductVariant(variantId: string) {
     try {
-      const product = await this.prisma.product.findFirst({
-        where: { id: productId, deletedAt: null },
-        select: { id: true },
-      });
-
-      if (!product) throw new NotFoundException('Product not found');
-
-      return await this.prisma.productVariant.findMany({
-        where: { productId, deletedAt: null, isActive: true },
-        orderBy: { createdAt: 'desc' },
+      const variant = await this.prisma.productVariant.findFirst({
+        where: { id: variantId, deletedAt: null },
         select: {
           id: true,
           productId: true,
@@ -111,11 +104,76 @@ export class ProductsVariantsService {
           },
         },
       });
+
+      if (!variant) throw new NotFoundException('Variant not found');
+
+      return variant;
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
-        context: 'ProductsService.listProductVariants',
-        defaultMessage: 'Failed to list product variants',
+        context: 'ProductsVariantsService.getProductVariant',
+        defaultMessage: 'Failed to get product variant',
+      });
+    }
+  }
+
+  async updateProductVariant(variantId: string, dto: UpdateProductVariantDto) {
+    try {
+      const updated = await this.prisma.productVariant.updateMany({
+        where: { id: variantId, deletedAt: null },
+        data: dto,
+      });
+
+      if (updated.count === 0) throw new NotFoundException('Variant not found');
+
+      return { message: 'Variant updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsVariantsService.updateProductVariant',
+        defaultMessage: 'Failed to update product variant',
+      });
+    }
+  }
+
+  async setVariantActive(variantId: string, isActive: boolean) {
+    try {
+      const updated = await this.prisma.productVariant.updateMany({
+        where: { id: variantId, deletedAt: null },
+        data: { isActive },
+      });
+
+      if (updated.count === 0) throw new NotFoundException('Variant not found');
+
+      return {
+        message: isActive
+          ? 'Variant activated successfully'
+          : 'Variant deactivated successfully',
+      };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsVariantsService.setVariantActive',
+        defaultMessage: 'Failed to update variant status',
+      });
+    }
+  }
+
+  async deleteProductVariant(variantId: string) {
+    try {
+      const updated = await this.prisma.productVariant.updateMany({
+        where: { id: variantId, deletedAt: null },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+
+      if (updated.count === 0) throw new NotFoundException('Variant not found');
+
+      return { message: 'Variant deleted successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsVariantsService.deleteProductVariant',
+        defaultMessage: 'Failed to delete product variant',
       });
     }
   }
