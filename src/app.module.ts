@@ -5,6 +5,7 @@ import { SeedModule } from './seed/seed.module';
 import { ConfigModule } from '@nestjs/config';
 import { envConfigSchema } from './config/env.schema';
 import { ProductsModule } from './products/products.module';
+import { PricingModule } from './pricing/pricing.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ProductsModule } from './products/products.module';
     AuthModule,
     SeedModule,
     ProductsModule,
+    PricingModule,
   ],
 })
 export class AppModule {}
