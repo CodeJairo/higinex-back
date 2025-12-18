@@ -68,6 +68,9 @@ export class AuthService {
 
       if (!user) throw new BadRequestException('User not found');
 
+      if (user.deletedAt)
+        throw new UnauthorizedException('Invalid credentials');
+
       if (user.isActive === false)
         throw new ForbiddenException('User account is inactive');
 
@@ -124,7 +127,7 @@ export class AuthService {
       omit: { password: true },
     });
 
-    if (!user || !user.isActive)
+    if (!user || user.deletedAt || !user.isActive)
       throw new UnauthorizedException('Invalid refresh token');
 
     return this.issueTokens({
