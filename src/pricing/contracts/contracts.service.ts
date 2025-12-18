@@ -91,21 +91,19 @@ export class ContractsService {
             'One or more variants do not exist or are deleted',
           );
 
-        await Promise.all(
-          upsertContractItemsDto.items.map((item) =>
-            tx.contractItem.upsert({
-              where: {
-                contractId_variantId: { contractId, variantId: item.variantId },
-              },
-              create: {
-                contractId,
-                variantId: item.variantId,
-                unitPriceCop: item.unitPriceCop,
-              },
-              update: { unitPriceCop: item.unitPriceCop },
-            }),
-          ),
-        );
+        for (const item of upsertContractItemsDto.items) {
+          await tx.contractItem.upsert({
+            where: {
+              contractId_variantId: { contractId, variantId: item.variantId },
+            },
+            create: {
+              contractId,
+              variantId: item.variantId,
+              unitPriceCop: item.unitPriceCop,
+            },
+            update: { unitPriceCop: item.unitPriceCop },
+          });
+        }
 
         return await tx.contractItem.findMany({
           where: { contractId },
