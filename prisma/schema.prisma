@@ -124,6 +124,7 @@ model Customer {
   updatedAt      DateTime          @updatedAt
   deletedAt      DateTime?
   addresses      CustomerAddress[]
+  contracts      Contract[]
 }
 
 model CustomerAddress {
@@ -172,13 +173,16 @@ model ProductVariant {
   images         ProductImage[]
   inventory      InventoryBalance?
   inventoryMoves InventoryMovement[]
+  contractItems  ContractItem[]
 
   @@index([productId, isActive])
 }
 
 model ProductImage {
   id        String          @id @default(uuid())
-  url       String
+  data      Bytes
+  mimeType  String
+  filename  String?
   altText   String?
   sortOrder Int             @default(0)
   createdAt DateTime        @default(now())
@@ -188,6 +192,40 @@ model ProductImage {
   variant   ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([productId])
+  @@index([variantId])
+}
+
+model Contract {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  isActive Boolean   @default(true)
+  startsAt DateTime  @default(now())
+  endsAt   DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items ContractItem[]
+
+  @@index([customerId, isActive])
+}
+
+model ContractItem {
+  id           String @id @default(uuid())
+  contractId   String
+  variantId    String
+  unitPriceCop Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contract Contract       @relation(fields: [contractId], references: [id])
+  variant  ProductVariant @relation(fields: [variantId], references: [id])
+
+  @@unique([contractId, variantId])
   @@index([variantId])
 }
 
