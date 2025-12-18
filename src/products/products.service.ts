@@ -37,15 +37,17 @@ export class ProductsService {
   }: GetAllProductQueryDto) {
     try {
       return await this.prisma.product.findMany({
-        where:
-          status === ProductStatusParam.ALL
-            ? undefined
+        where: {
+          deletedAt: null,
+          ...(status === ProductStatusParam.ALL
+            ? {}
             : {
                 status:
                   status === ProductStatusParam.PUBLISHED
                     ? ProductStatus.PUBLISHED
                     : ProductStatus.ARCHIVED,
-              },
+              }),
+        },
         take: limit,
         skip: offset,
         orderBy: { createdAt: 'desc' },
@@ -61,11 +63,10 @@ export class ProductsService {
 
   async setProductPublished(id: string) {
     try {
+      await this.assertProductExists(id);
       await this.prisma.product.update({
         where: { id },
-        data: {
-          status: ProductStatus.PUBLISHED,
-        },
+        data: { status: ProductStatus.PUBLISHED },
       });
       return { message: 'Product set as published successfully' };
     } catch (error) {
@@ -79,11 +80,10 @@ export class ProductsService {
 
   async setProductArchived(id: string) {
     try {
+      await this.assertProductExists(id);
       await this.prisma.product.update({
         where: { id },
-        data: {
-          status: ProductStatus.ARCHIVED,
-        },
+        data: { status: ProductStatus.ARCHIVED },
       });
       return { message: 'Product set as archived successfully ' };
     } catch (error) {
@@ -97,6 +97,7 @@ export class ProductsService {
 
   async updateProduct(id: string, updateProductDto: UpdateProductDto) {
     try {
+      await this.assertProductExists(id);
       await this.prisma.product.update({
         where: { id },
         data: updateProductDto,
@@ -156,5 +157,14 @@ export class ProductsService {
         defaultMessage: 'Failed to list product variants',
       });
     }
+  }
+
+  private async assertProductExists(productId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!product) throw new NotFoundException('Product not found');
   }
 }
