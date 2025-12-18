@@ -1,4 +1,11 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { Auth } from 'src/auth/decorators/auth.decorator';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { ProductsVariantsService } from './products-variants.service';
@@ -20,5 +27,10 @@ export class ProductVariantsController {
       id,
       createProductVariantDto,
     );
+  }
+
+  @Get('/list/:id')
+  async listProductVariants(@Param('id', ParseUUIDPipe) id: string) {
+    return await this.productsVariantsService.listProductVariants(id);
   }
 }
