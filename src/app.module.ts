@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from './prisma/prisma.module';
-import { AuthModule } from './auth/auth.module';
-import { SeedModule } from './seed/seed.module';
 import { ConfigModule } from '@nestjs/config';
+import { AuthModule } from './auth/auth.module';
 import { envConfigSchema } from './config/env.schema';
-import { ProductsModule } from './products/products.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { PricingModule } from './pricing/pricing.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { ProductsModule } from './products/products.module';
+import { SeedModule } from './seed/seed.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PricingModule } from './pricing/pricing.module';
     SeedModule,
     ProductsModule,
     PricingModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}
