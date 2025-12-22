@@ -110,58 +110,30 @@ export class InventoryService {
     try {
       const normalized = this.normalizeItems(items);
 
-      return await this.prisma.$transaction(async (tx) => {
-        const results: InventoryOperationResult['items'] = [];
-        const movements: Prisma.InventoryMovementCreateManyInput[] = [];
-
-        for (const item of normalized) {
-          const balance = await this.lockBalance(tx, item.variantId);
-          const availableBefore = balance.onHand - balance.reserved;
-
-          if (availableBefore < item.quantity) {
-            throw new ConflictException(
-              `Insufficient stock for variant ${item.variantId}`,
-            );
-          }
-
-          const reservedAfter = balance.reserved + item.quantity;
-
-          await tx.inventoryBalance.update({
-            where: { variantId: item.variantId },
-            data: { reserved: { increment: item.quantity } },
-          });
-
-          results.push({
-            variantId: item.variantId,
-            quantity: item.quantity,
-            onHandBefore: balance.onHand,
-            onHandAfter: balance.onHand,
-            reservedBefore: balance.reserved,
-            reservedAfter,
-            availableBefore,
-            availableAfter: balance.onHand - reservedAfter,
-          });
-
-          movements.push({
-            variantId: item.variantId,
-            type: InventoryMovementType.ADJUSTMENT,
-            quantity: item.quantity,
-            reason: options.reason ?? 'RESERVE',
-            notes: options.notes,
-            orderId: options.orderId,
-          });
-        }
-
-        if (movements.length > 0) {
-          await tx.inventoryMovement.createMany({ data: movements });
-        }
-
-        return { items: results } satisfies InventoryOperationResult;
-      });
+      return await this.prisma.$transaction((tx) =>
+        this.reserveStockInTransaction(tx, normalized, options),
+      );
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
         context: 'InventoryService.reserveStock',
+        defaultMessage: 'Failed to reserve stock',
+      });
+    }
+  }
+
+  async reserveStockWithTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions = {},
+  ) {
+    try {
+      const normalized = this.normalizeItems(items);
+      return await this.reserveStockInTransaction(tx, normalized, options);
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.reserveStockWithTransaction',
         defaultMessage: 'Failed to reserve stock',
       });
     }
@@ -174,57 +146,30 @@ export class InventoryService {
     try {
       const normalized = this.normalizeItems(items);
 
-      return await this.prisma.$transaction(async (tx) => {
-        const results: InventoryOperationResult['items'] = [];
-        const movements: Prisma.InventoryMovementCreateManyInput[] = [];
-
-        for (const item of normalized) {
-          const balance = await this.lockBalance(tx, item.variantId);
-
-          if (balance.reserved < item.quantity) {
-            throw new ConflictException(
-              `Reserved stock is lower than requested release for variant ${item.variantId}`,
-            );
-          }
-
-          const reservedAfter = balance.reserved - item.quantity;
-
-          await tx.inventoryBalance.update({
-            where: { variantId: item.variantId },
-            data: { reserved: { decrement: item.quantity } },
-          });
-
-          results.push({
-            variantId: item.variantId,
-            quantity: item.quantity,
-            onHandBefore: balance.onHand,
-            onHandAfter: balance.onHand,
-            reservedBefore: balance.reserved,
-            reservedAfter,
-            availableBefore: balance.onHand - balance.reserved,
-            availableAfter: balance.onHand - reservedAfter,
-          });
-
-          movements.push({
-            variantId: item.variantId,
-            type: InventoryMovementType.ADJUSTMENT,
-            quantity: item.quantity,
-            reason: options.reason ?? 'RELEASE',
-            notes: options.notes,
-            orderId: options.orderId,
-          });
-        }
-
-        if (movements.length > 0) {
-          await tx.inventoryMovement.createMany({ data: movements });
-        }
-
-        return { items: results } satisfies InventoryOperationResult;
-      });
+      return await this.prisma.$transaction((tx) =>
+        this.releaseStockInTransaction(tx, normalized, options),
+      );
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
         context: 'InventoryService.releaseStock',
+        defaultMessage: 'Failed to release reserved stock',
+      });
+    }
+  }
+
+  async releaseStockWithTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions = {},
+  ) {
+    try {
+      const normalized = this.normalizeItems(items);
+      return await this.releaseStockInTransaction(tx, normalized, options);
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.releaseStockWithTransaction',
         defaultMessage: 'Failed to release reserved stock',
       });
     }
@@ -237,63 +182,9 @@ export class InventoryService {
     try {
       const normalized = this.normalizeItems(items);
 
-      return await this.prisma.$transaction(async (tx) => {
-        const results: InventoryOperationResult['items'] = [];
-        const movements: Prisma.InventoryMovementCreateManyInput[] = [];
-
-        for (const item of normalized) {
-          const balance = await this.lockBalance(tx, item.variantId);
-
-          if (balance.reserved < item.quantity) {
-            throw new ConflictException(
-              `Reserved stock is lower than requested commit for variant ${item.variantId}`,
-            );
-          }
-
-          if (balance.onHand < item.quantity) {
-            throw new ConflictException(
-              `On hand stock is lower than requested commit for variant ${item.variantId}`,
-            );
-          }
-
-          const reservedAfter = balance.reserved - item.quantity;
-          const onHandAfter = balance.onHand - item.quantity;
-
-          await tx.inventoryBalance.update({
-            where: { variantId: item.variantId },
-            data: {
-              reserved: { decrement: item.quantity },
-              onHand: { decrement: item.quantity },
-            },
-          });
-
-          results.push({
-            variantId: item.variantId,
-            quantity: item.quantity,
-            onHandBefore: balance.onHand,
-            onHandAfter,
-            reservedBefore: balance.reserved,
-            reservedAfter,
-            availableBefore: balance.onHand - balance.reserved,
-            availableAfter: onHandAfter - reservedAfter,
-          });
-
-          movements.push({
-            variantId: item.variantId,
-            type: InventoryMovementType.OUT,
-            quantity: item.quantity,
-            reason: options.reason ?? 'COMMIT',
-            notes: options.notes,
-            orderId: options.orderId,
-          });
-        }
-
-        if (movements.length > 0) {
-          await tx.inventoryMovement.createMany({ data: movements });
-        }
-
-        return { items: results } satisfies InventoryOperationResult;
-      });
+      return await this.prisma.$transaction((tx) =>
+        this.commitStockInTransaction(tx, normalized, options),
+      );
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -303,6 +194,189 @@ export class InventoryService {
     }
   }
 
+  async commitStockWithTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions = {},
+  ) {
+    try {
+      const normalized = this.normalizeItems(items);
+      return await this.commitStockInTransaction(tx, normalized, options);
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.commitStockWithTransaction',
+        defaultMessage: 'Failed to commit stock',
+      });
+    }
+  }
+
+  private async reserveStockInTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions,
+  ) {
+    const results: InventoryOperationResult['items'] = [];
+    const movements: Prisma.InventoryMovementCreateManyInput[] = [];
+
+    for (const item of items) {
+      const balance = await this.lockBalance(tx, item.variantId);
+      const availableBefore = balance.onHand - balance.reserved;
+
+      if (availableBefore < item.quantity) {
+        throw new ConflictException(
+          `Insufficient stock for variant ${item.variantId}`,
+        );
+      }
+
+      const reservedAfter = balance.reserved + item.quantity;
+
+      await tx.inventoryBalance.update({
+        where: { variantId: item.variantId },
+        data: { reserved: { increment: item.quantity } },
+      });
+
+      results.push({
+        variantId: item.variantId,
+        quantity: item.quantity,
+        onHandBefore: balance.onHand,
+        onHandAfter: balance.onHand,
+        reservedBefore: balance.reserved,
+        reservedAfter,
+        availableBefore,
+        availableAfter: balance.onHand - reservedAfter,
+      });
+
+      movements.push({
+        variantId: item.variantId,
+        type: InventoryMovementType.ADJUSTMENT,
+        quantity: item.quantity,
+        reason: options.reason ?? 'RESERVE',
+        notes: options.notes,
+        orderId: options.orderId,
+      });
+    }
+
+    if (movements.length > 0) {
+      await tx.inventoryMovement.createMany({ data: movements });
+    }
+
+    return { items: results } satisfies InventoryOperationResult;
+  }
+
+  private async releaseStockInTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions,
+  ) {
+    const results: InventoryOperationResult['items'] = [];
+    const movements: Prisma.InventoryMovementCreateManyInput[] = [];
+
+    for (const item of items) {
+      const balance = await this.lockBalance(tx, item.variantId);
+
+      if (balance.reserved < item.quantity) {
+        throw new ConflictException(
+          `Reserved stock is lower than requested release for variant ${item.variantId}`,
+        );
+      }
+
+      const reservedAfter = balance.reserved - item.quantity;
+
+      await tx.inventoryBalance.update({
+        where: { variantId: item.variantId },
+        data: { reserved: { decrement: item.quantity } },
+      });
+
+      results.push({
+        variantId: item.variantId,
+        quantity: item.quantity,
+        onHandBefore: balance.onHand,
+        onHandAfter: balance.onHand,
+        reservedBefore: balance.reserved,
+        reservedAfter,
+        availableBefore: balance.onHand - balance.reserved,
+        availableAfter: balance.onHand - reservedAfter,
+      });
+
+      movements.push({
+        variantId: item.variantId,
+        type: InventoryMovementType.ADJUSTMENT,
+        quantity: item.quantity,
+        reason: options.reason ?? 'RELEASE',
+        notes: options.notes,
+        orderId: options.orderId,
+      });
+    }
+
+    if (movements.length > 0) {
+      await tx.inventoryMovement.createMany({ data: movements });
+    }
+
+    return { items: results } satisfies InventoryOperationResult;
+  }
+
+  private async commitStockInTransaction(
+    tx: Prisma.TransactionClient,
+    items: InventoryItemInput[],
+    options: InventoryOperationOptions,
+  ) {
+    const results: InventoryOperationResult['items'] = [];
+    const movements: Prisma.InventoryMovementCreateManyInput[] = [];
+
+    for (const item of items) {
+      const balance = await this.lockBalance(tx, item.variantId);
+
+      if (balance.reserved < item.quantity) {
+        throw new ConflictException(
+          `Reserved stock is lower than requested commit for variant ${item.variantId}`,
+        );
+      }
+
+      if (balance.onHand < item.quantity) {
+        throw new ConflictException(
+          `On hand stock is lower than requested commit for variant ${item.variantId}`,
+        );
+      }
+
+      const reservedAfter = balance.reserved - item.quantity;
+      const onHandAfter = balance.onHand - item.quantity;
+
+      await tx.inventoryBalance.update({
+        where: { variantId: item.variantId },
+        data: {
+          reserved: { decrement: item.quantity },
+          onHand: { decrement: item.quantity },
+        },
+      });
+
+      results.push({
+        variantId: item.variantId,
+        quantity: item.quantity,
+        onHandBefore: balance.onHand,
+        onHandAfter,
+        reservedBefore: balance.reserved,
+        reservedAfter,
+        availableBefore: balance.onHand - balance.reserved,
+        availableAfter: onHandAfter - reservedAfter,
+      });
+
+      movements.push({
+        variantId: item.variantId,
+        type: InventoryMovementType.OUT,
+        quantity: item.quantity,
+        reason: options.reason ?? 'COMMIT',
+        notes: options.notes,
+        orderId: options.orderId,
+      });
+    }
+
+    if (movements.length > 0) {
+      await tx.inventoryMovement.createMany({ data: movements });
+    }
+
+    return { items: results } satisfies InventoryOperationResult;
+  }
   private normalizeItems(items: InventoryItemInput[]) {
     if (!Array.isArray(items) || items.length === 0) {
       throw new BadRequestException('Items are required');
