@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { ValidatedUserPayload } from 'src/auth/interfaces/validated-user-payload.interface';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { InventoryService } from 'src/inventory/inventory.service';
+import { EmailService } from 'src/notifications/email/email.service';
 import { PricingService } from 'src/pricing/pricing.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
@@ -35,79 +36,36 @@ import {
   PENDING_RESERVATION_STATUSES,
 } from './orders.constants';
 
+type OrderWithItems = Prisma.OrderGetPayload<{ include: { items: true } }>;
+type OrderWithItemsAndAddress = Prisma.OrderGetPayload<{
+  include: { items: true; shippingAddress: true };
+}>;
+type CreatedOrder = OrderWithItemsAndAddress & { reservationExpiresAt: Date };
+type ConfirmedPayment = { id: string; paidAt: Date | null };
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly inventoryService: InventoryService,
     private readonly pricingService: PricingService,
     private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto) {
     const items = this.normalizeItems(dto.items);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const customer = await this.getCustomerForUser(tx, userId);
-        const variants = await this.getActiveVariants(tx, items);
-        const prices =
-          await this.pricingService.getVariantPricesForCustomerWithTransaction(
-            tx,
-            customer.id,
-            items.map((item) => item.variantId),
-          );
+      const order = await this.prisma.$transaction((tx) =>
+        this.createOrderTransaction(tx, userId, dto, items),
+      );
 
-        const orderItems = this.buildOrderItems(items, variants, prices);
-        const totals = this.calculateTotals(orderItems);
-        const shippingAddressData = await this.getShippingAddressData(
-          tx,
-          dto.shippingAddressId,
-          customer,
-        );
+      await this.notifyOrderCreated(order);
 
-        const orderData: OrderCreateInputWithoutNumber = {
-          status: OrderStatus.PENDING_PAYMENT,
-          customer: { connect: { id: customer.id } },
-          buyerFullName: customer.name,
-          buyerEmail: customer.email,
-          buyerPhone: customer.phone,
-          buyerDocumentType: customer.documentType,
-          buyerDocumentNumber: customer.documentNumber,
-          subtotalAmount: totals.subtotalAmount,
-          shippingAmount: totals.shippingAmount,
-          discountAmount: totals.discountAmount,
-          totalAmount: totals.totalAmount,
-          customerNotes: dto.customerNotes,
-          items: { create: orderItems },
-          shippingAddress: shippingAddressData
-            ? { create: shippingAddressData }
-            : undefined,
-        };
-
-        const order = await this.createOrderWithUniqueNumber(tx, orderData, {
-          items: true,
-          shippingAddress: true,
-        });
-
-        await this.inventoryService.reserveStockWithTransaction(tx, items, {
-          orderId: order.id,
-          reason: INVENTORY_REASONS.RESERVE,
-        });
-
-        await this.createStatusHistory(tx, {
-          orderId: order.id,
-          toStatus: order.status,
-          changedByUserId: userId,
-          comment: 'Order created and stock reserved',
-        });
-
-        return {
-          ...order,
-          reservationExpiresAt: this.getReservationExpiresAt(order.createdAt),
-        };
-      });
+      return order;
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -123,96 +81,9 @@ export class OrdersService {
     dto: ConfirmPaymentDto,
   ) {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.lockOrderForUpdate(tx, orderId);
-
-        const order = await tx.order.findFirst({
-          where: { id: orderId, deletedAt: null },
-          include: { items: true },
-        });
-
-        if (!order) throw new NotFoundException('Order not found');
-
-        const existingPayment = await tx.payment.findFirst({
-          where: { orderId: order.id, status: PaymentStatus.CONFIRMED },
-          select: { id: true, paidAt: true },
-        });
-
-        if (order.status === OrderStatus.PAID) {
-          if (existingPayment) {
-            return order;
-          }
-
-          throw new ConflictException(
-            'Order is marked as paid but has no confirmed payment',
-          );
-        }
-
-        if (existingPayment) {
-          this.ensureTransitionAllowed(order.status, OrderStatus.PAID);
-
-          const paidAt = existingPayment.paidAt ?? new Date();
-          const updated = await tx.order.update({
-            where: { id: order.id },
-            data: { status: OrderStatus.PAID, paidAt },
-          });
-
-          await this.createStatusHistory(tx, {
-            orderId: order.id,
-            fromStatus: order.status,
-            toStatus: OrderStatus.PAID,
-            changedByUserId: userId,
-            comment: 'Payment already confirmed',
-          });
-
-          return updated;
-        }
-
-        if (await this.cancelIfReservationExpired(tx, order, userId)) {
-          throw new ConflictException(
-            'Reservation expired. Order was canceled.',
-          );
-        }
-
-        this.ensureTransitionAllowed(order.status, OrderStatus.PAID);
-
-        const items = this.mapOrderItemsToInventory(order.items);
-
-        await this.inventoryService.commitStockWithTransaction(tx, items, {
-          orderId: order.id,
-          reason: INVENTORY_REASONS.COMMIT,
-        });
-
-        const paymentAmount = this.resolvePaymentAmount(order, dto);
-        const paidAt = new Date();
-
-        await tx.payment.create({
-          data: {
-            orderId: order.id,
-            method: dto.method,
-            status: PaymentStatus.CONFIRMED,
-            amount: paymentAmount,
-            paidAt,
-            reference: dto.reference,
-            notes: dto.notes,
-          },
-        });
-
-        const updated = await tx.order.update({
-          where: { id: order.id },
-          data: { status: OrderStatus.PAID, paidAt },
-        });
-
-        await this.createStatusHistory(tx, {
-          orderId: order.id,
-          fromStatus: order.status,
-          toStatus: OrderStatus.PAID,
-          changedByUserId: userId,
-          comment: 'Payment confirmed',
-        });
-
-        return updated;
-      });
+      return await this.prisma.$transaction((tx) =>
+        this.confirmPaymentTransaction(tx, orderId, userId, dto),
+      );
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -228,56 +99,9 @@ export class OrdersService {
     dto: CancelOrderDto,
   ) {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.lockOrderForUpdate(tx, orderId);
-
-        const order = await tx.order.findFirst({
-          where: { id: orderId, deletedAt: null },
-          include: { items: true },
-        });
-
-        if (!order) throw new NotFoundException('Order not found');
-
-        if (order.status === OrderStatus.CANCELED) {
-          return order;
-        }
-
-        await this.assertCancelPermissions(tx, order, user);
-
-        const expiredOrder = await this.cancelIfReservationExpired(
-          tx,
-          order,
-          user.id,
-        );
-
-        if (expiredOrder) {
-          return expiredOrder;
-        }
-
-        this.ensureTransitionAllowed(order.status, OrderStatus.CANCELED);
-
-        const items = this.mapOrderItemsToInventory(order.items);
-
-        await this.inventoryService.releaseStockWithTransaction(tx, items, {
-          orderId: order.id,
-          reason: INVENTORY_REASONS.RELEASE,
-        });
-
-        const updated = await tx.order.update({
-          where: { id: order.id },
-          data: { status: OrderStatus.CANCELED },
-        });
-
-        await this.createStatusHistory(tx, {
-          orderId: order.id,
-          fromStatus: order.status,
-          toStatus: OrderStatus.CANCELED,
-          changedByUserId: user.id,
-          comment: dto.comment,
-        });
-
-        return updated;
-      });
+      return await this.prisma.$transaction((tx) =>
+        this.cancelOrderTransaction(tx, orderId, user, dto),
+      );
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -289,37 +113,13 @@ export class OrdersService {
 
   async expireReservations(userId: string) {
     try {
-      const cutoff = this.getReservationExpiryCutoff();
-      const candidates = await this.prisma.order.findMany({
-        where: {
-          deletedAt: null,
-          status: { in: PENDING_RESERVATION_STATUSES },
-          createdAt: { lt: cutoff },
-        },
-        select: { id: true },
-      });
-
+      const candidates = await this.findExpiredReservationCandidates();
       const expiredOrderIds: string[] = [];
 
       for (const order of candidates) {
-        const expiredId = await this.prisma.$transaction(async (tx) => {
-          await this.lockOrderForUpdate(tx, order.id);
-
-          const current = await tx.order.findFirst({
-            where: { id: order.id, deletedAt: null },
-            include: { items: true },
-          });
-
-          if (!current) return null;
-
-          const updated = await this.cancelIfReservationExpired(
-            tx,
-            current,
-            userId,
-          );
-
-          return updated?.id ?? null;
-        });
+        const expiredId = await this.prisma.$transaction((tx) =>
+          this.expireReservationForOrder(tx, order.id, userId),
+        );
 
         if (expiredId) {
           expiredOrderIds.push(expiredId);
@@ -338,6 +138,190 @@ export class OrdersService {
         defaultMessage: 'Failed to expire reservations',
       });
     }
+  }
+
+  private async createOrderTransaction(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    dto: CreateOrderDto,
+    items: NormalizedOrderItem[],
+  ): Promise<CreatedOrder> {
+    const customer = await this.getCustomerForUser(tx, userId);
+    const variants = await this.getActiveVariants(tx, items);
+    const prices =
+      await this.pricingService.getVariantPricesForCustomerWithTransaction(
+        tx,
+        customer.id,
+        items.map((item) => item.variantId),
+      );
+
+    const orderItems = this.buildOrderItems(items, variants, prices);
+    const totals = this.calculateTotals(orderItems);
+    const shippingAddressData = await this.getShippingAddressData(
+      tx,
+      dto.shippingAddressId,
+      customer,
+    );
+
+    const orderData: OrderCreateInputWithoutNumber = {
+      status: OrderStatus.PENDING_PAYMENT,
+      customer: { connect: { id: customer.id } },
+      buyerFullName: customer.name,
+      buyerEmail: customer.email,
+      buyerPhone: customer.phone,
+      buyerDocumentType: customer.documentType,
+      buyerDocumentNumber: customer.documentNumber,
+      subtotalAmount: totals.subtotalAmount,
+      shippingAmount: totals.shippingAmount,
+      discountAmount: totals.discountAmount,
+      totalAmount: totals.totalAmount,
+      customerNotes: dto.customerNotes,
+      items: { create: orderItems },
+      shippingAddress: shippingAddressData
+        ? { create: shippingAddressData }
+        : undefined,
+    };
+
+    const include = { items: true, shippingAddress: true } as const;
+    const order = await this.createOrderWithUniqueNumber(
+      tx,
+      orderData,
+      include,
+    );
+
+    await this.inventoryService.reserveStockWithTransaction(tx, items, {
+      orderId: order.id,
+      reason: INVENTORY_REASONS.RESERVE,
+    });
+
+    await this.createStatusHistory(tx, {
+      orderId: order.id,
+      toStatus: order.status,
+      changedByUserId: userId,
+      comment: 'Order created and stock reserved',
+    });
+
+    return {
+      ...order,
+      reservationExpiresAt: this.getReservationExpiresAt(order.createdAt),
+    };
+  }
+
+  private async confirmPaymentTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    userId: string,
+    dto: ConfirmPaymentDto,
+  ) {
+    const order = await this.getOrderForUpdate(tx, orderId);
+    const existingPayment = await this.getConfirmedPayment(tx, order.id);
+
+    if (order.status === OrderStatus.PAID) {
+      this.assertPaidOrderConsistency(existingPayment);
+      return order;
+    }
+
+    if (existingPayment) {
+      this.ensureTransitionAllowed(order.status, OrderStatus.PAID);
+      const paidAt = existingPayment.paidAt ?? new Date();
+      return await this.markOrderPaid(
+        tx,
+        order,
+        paidAt,
+        userId,
+        'Payment already confirmed',
+      );
+    }
+
+    if (await this.cancelIfReservationExpired(tx, order, userId)) {
+      throw new ConflictException('Reservation expired. Order was canceled.');
+    }
+
+    this.ensureTransitionAllowed(order.status, OrderStatus.PAID);
+
+    const items = this.mapOrderItemsToInventory(order.items);
+    await this.inventoryService.commitStockWithTransaction(tx, items, {
+      orderId: order.id,
+      reason: INVENTORY_REASONS.COMMIT,
+    });
+
+    const paymentAmount = this.resolvePaymentAmount(order, dto);
+    const paidAt = new Date();
+
+    await this.createPayment(tx, order.id, dto, paymentAmount, paidAt);
+
+    return await this.markOrderPaid(
+      tx,
+      order,
+      paidAt,
+      userId,
+      'Payment confirmed',
+    );
+  }
+
+  private async cancelOrderTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    user: ValidatedUserPayload,
+    dto: CancelOrderDto,
+  ) {
+    const order = await this.getOrderForUpdate(tx, orderId);
+
+    if (order.status === OrderStatus.CANCELED) {
+      return order;
+    }
+
+    await this.assertCancelPermissions(tx, order, user);
+
+    const expiredOrder = await this.cancelIfReservationExpired(
+      tx,
+      order,
+      user.id,
+    );
+
+    if (expiredOrder) {
+      return expiredOrder;
+    }
+
+    this.ensureTransitionAllowed(order.status, OrderStatus.CANCELED);
+
+    const items = this.mapOrderItemsToInventory(order.items);
+    await this.inventoryService.releaseStockWithTransaction(tx, items, {
+      orderId: order.id,
+      reason: INVENTORY_REASONS.RELEASE,
+    });
+
+    return await this.markOrderCanceled(tx, order, user.id, dto.comment);
+  }
+
+  private async expireReservationForOrder(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    userId: string,
+  ) {
+    await this.lockOrderForUpdate(tx, orderId);
+
+    const order = await tx.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+      include: { items: true },
+    });
+
+    if (!order) return null;
+
+    const updated = await this.cancelIfReservationExpired(tx, order, userId);
+    return updated?.id ?? null;
+  }
+
+  private async findExpiredReservationCandidates() {
+    const cutoff = this.getReservationExpiryCutoff();
+    return this.prisma.order.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: PENDING_RESERVATION_STATUSES },
+        createdAt: { lt: cutoff },
+      },
+      select: { id: true },
+    });
   }
 
   private normalizeItems(items: CreateOrderDto['items']) {
@@ -633,22 +617,75 @@ export class OrdersService {
     return paymentAmount;
   }
 
-  private async createOrderWithUniqueNumber(
+  private async notifyOrderCreated(order: CreatedOrder) {
+    const notification = this.buildOrderNotification(order);
+    if (!notification) return;
+
+    try {
+      await Promise.all([
+        this.emailService.sendOrderCreatedToCompany(notification),
+        this.emailService.sendOrderCreatedToCustomer(notification),
+      ]);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send order email for ${order.orderNumber}`,
+        error as Error,
+      );
+    }
+  }
+
+  private buildOrderNotification(order: CreatedOrder) {
+    if (!order.buyerEmail || !order.buyerFullName) {
+      this.logger.warn(
+        `Skipping order email for ${order.orderNumber}: missing buyer data`,
+      );
+      return null;
+    }
+
+    return {
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      status: order.status,
+      currency: order.currency,
+      totalAmount: order.totalAmount.toString(),
+      customerNotes: order.customerNotes ?? undefined,
+      customer: {
+        name: order.buyerFullName,
+        email: order.buyerEmail,
+        phone: order.buyerPhone ?? undefined,
+        documentType: order.buyerDocumentType ?? undefined,
+        documentNumber: order.buyerDocumentNumber ?? undefined,
+      },
+      items: order.items.map((item) => ({
+        productName: item.productNameSnapshot,
+        variantName: item.variantNameSnapshot ?? undefined,
+        quantity: item.quantity,
+        unitPrice: item.unitPriceAmount.toString(),
+        lineTotal: item.lineTotalAmount.toString(),
+      })),
+    };
+  }
+
+  private async createOrderWithUniqueNumber<
+    TInclude extends Prisma.OrderCreateArgs['include'],
+  >(
     tx: Prisma.TransactionClient,
     data: OrderCreateInputWithoutNumber,
-    include?: Prisma.OrderCreateArgs['include'],
-  ) {
+    include?: TInclude,
+  ): Promise<Prisma.OrderGetPayload<{ include: TInclude }>> {
     const maxAttempts = 3;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        return await tx.order.create({
-          data: {
-            ...data,
-            orderNumber: this.generateOrderNumber(),
-          },
+        const dataWithNumber: Prisma.OrderCreateInput = {
+          ...data,
+          orderNumber: this.generateOrderNumber(),
+        };
+        const created = await tx.order.create({
+          data: dataWithNumber,
           include,
         });
+        return created as Prisma.OrderGetPayload<{ include: TInclude }>;
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -666,8 +703,106 @@ export class OrdersService {
     }
 
     this.logger.warn('Failed to generate unique order number after retries');
-
     throw new ConflictException('Failed to generate unique order number');
+  }
+
+  private async getOrderForUpdate(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<OrderWithItems> {
+    await this.lockOrderForUpdate(tx, orderId);
+
+    const order = await tx.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+      include: { items: true },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    return order;
+  }
+
+  private async getConfirmedPayment(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<ConfirmedPayment | null> {
+    return await tx.payment.findFirst({
+      where: { orderId, status: PaymentStatus.CONFIRMED },
+      select: { id: true, paidAt: true },
+    });
+  }
+
+  private assertPaidOrderConsistency(existingPayment: ConfirmedPayment | null) {
+    if (existingPayment) return;
+
+    throw new ConflictException(
+      'Order is marked as paid but has no confirmed payment',
+    );
+  }
+
+  private async createPayment(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    dto: ConfirmPaymentDto,
+    amount: Prisma.Decimal,
+    paidAt: Date,
+  ) {
+    await tx.payment.create({
+      data: {
+        orderId,
+        method: dto.method,
+        status: PaymentStatus.CONFIRMED,
+        amount,
+        paidAt,
+        reference: dto.reference,
+        notes: dto.notes,
+      },
+    });
+  }
+
+  private async markOrderPaid(
+    tx: Prisma.TransactionClient,
+    order: { id: string; status: OrderStatus },
+    paidAt: Date,
+    userId: string,
+    comment: string,
+  ) {
+    const updated = await tx.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.PAID, paidAt },
+    });
+
+    await this.createStatusHistory(tx, {
+      orderId: order.id,
+      fromStatus: order.status,
+      toStatus: OrderStatus.PAID,
+      changedByUserId: userId,
+      comment,
+    });
+
+    return updated;
+  }
+
+  private async markOrderCanceled(
+    tx: Prisma.TransactionClient,
+    order: { id: string; status: OrderStatus },
+    userId: string,
+    comment?: string,
+  ) {
+    const updated = await tx.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.CANCELED },
+    });
+
+    await this.createStatusHistory(tx, {
+      orderId: order.id,
+      fromStatus: order.status,
+      toStatus: OrderStatus.CANCELED,
+      changedByUserId: userId,
+      comment,
+    });
+
+    return updated;
   }
 
   private async lockOrderForUpdate(
@@ -708,16 +843,16 @@ export class OrdersService {
   }
 
   private getReservationExpiryCutoff() {
-    return new Date(
-      Date.now() -
-        this.config.getOrThrow('RESERVATION_TTL_MINUTES') * 60 * 1000,
-    );
+    return new Date(Date.now() - this.getReservationTtlMs());
   }
 
   private getReservationExpiresAt(createdAt: Date) {
-    return new Date(
-      createdAt.getTime() +
-        this.config.getOrThrow('RESERVATION_TTL_MINUTES') * 60 * 1000,
+    return new Date(createdAt.getTime() + this.getReservationTtlMs());
+  }
+
+  private getReservationTtlMs() {
+    return (
+      this.config.getOrThrow<number>('RESERVATION_TTL_MINUTES') * 60 * 1000
     );
   }
 }
