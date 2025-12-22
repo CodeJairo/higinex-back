@@ -35,4 +35,6 @@ export const envConfigSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
+
+  RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(60).default(45),
 }).unknown(true);
