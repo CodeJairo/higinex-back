@@ -9,5 +9,6 @@ import { PricingService } from './pricing.service';
   imports: [PrismaModule],
   controllers: [PricingController, ContractsController],
   providers: [PricingService, ContractsService],
+  exports: [PricingService],
 })
 export class PricingModule {}
