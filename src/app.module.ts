@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { envConfigSchema } from './config/env.schema';
 import { InventoryModule } from './inventory/inventory.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 import { PricingModule } from './pricing/pricing.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -26,6 +27,7 @@ import { SeedModule } from './seed/seed.module';
     PricingModule,
     InventoryModule,
     OrdersModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

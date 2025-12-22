@@ -37,4 +37,36 @@ export const envConfigSchema = Joi.object({
   }),
 
   RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(60).default(45),
+
+  EMAIL_PROVIDER: Joi.string().valid('SMTP', 'DISABLED').default('DISABLED'),
+  EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  COMPANY_ORDERS_EMAIL: Joi.string().email().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_HOST: Joi.string().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_PORT: Joi.number().port().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_PASS: Joi.string().when('EMAIL_PROVIDER', {
+    is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
 }).unknown(true);
