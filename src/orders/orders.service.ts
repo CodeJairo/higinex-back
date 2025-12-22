@@ -133,14 +133,20 @@ export class OrdersService {
 
         if (!order) throw new NotFoundException('Order not found');
 
-        if (order.status === OrderStatus.PAID) {
-          return order;
-        }
-
         const existingPayment = await tx.payment.findFirst({
           where: { orderId: order.id, status: PaymentStatus.CONFIRMED },
           select: { id: true, paidAt: true },
         });
+
+        if (order.status === OrderStatus.PAID) {
+          if (existingPayment) {
+            return order;
+          }
+
+          throw new ConflictException(
+            'Order is marked as paid but has no confirmed payment',
+          );
+        }
 
         if (existingPayment) {
           this.ensureTransitionAllowed(order.status, OrderStatus.PAID);
@@ -426,7 +432,7 @@ export class OrdersService {
   private buildOrderItems(
     items: NormalizedOrderItem[],
     variantsById: Map<string, VariantSnapshot>,
-    prices: Array<{ variantId: string; unitPriceCop: number }>,
+    prices: Array<{ variantId: string; unitPriceCop: Prisma.Decimal | number }>,
   ) {
     const pricesByVariantId = new Map(
       prices.map((price) => [price.variantId, price.unitPriceCop]),
@@ -442,7 +448,8 @@ export class OrdersService {
         );
       }
 
-      const lineTotal = unitPrice * item.quantity;
+      const unitPriceAmount = new Prisma.Decimal(unitPrice);
+      const lineTotalAmount = unitPriceAmount.mul(item.quantity);
 
       return {
         variantId: item.variantId,
@@ -450,9 +457,9 @@ export class OrdersService {
         gtinSnapshot: variant.gtin,
         productNameSnapshot: variant.product.name,
         variantNameSnapshot: variant.name,
-        unitPriceAmount: new Prisma.Decimal(unitPrice),
+        unitPriceAmount,
         quantity: item.quantity,
-        lineTotalAmount: new Prisma.Decimal(lineTotal),
+        lineTotalAmount,
       } satisfies OrderItemSnapshot;
     });
   }
