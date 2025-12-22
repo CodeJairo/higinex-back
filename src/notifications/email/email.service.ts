@@ -32,13 +32,8 @@ export class EmailService {
       return;
     }
 
-    const subject = `New order ${input.orderNumber}`;
-    const content = this.renderOrderEmail({
-      ...input,
-      includeCustomer: true,
-      includeNotes: true,
-      includeStatus: true,
-    });
+    const subject = `Nuevo pedido ${input.orderNumber}`;
+    const content = this.renderCompanyOrderEmail(input);
 
     await this.sendMail({
       to: this.companyOrdersEmail,
@@ -49,10 +44,8 @@ export class EmailService {
   }
 
   async sendOrderCreatedToCustomer(input: OrderNotificationInput) {
-    const subject = `Order received ${input.orderNumber}`;
-    const content = this.renderOrderEmail({
-      ...input,
-      includeCustomer: false,
+    const subject = `Pedido recibido ${input.orderNumber}`;
+    const content = this.renderCustomerOrderEmail(input, {
       includeNotes: true,
       includeStatus: true,
     });
@@ -66,10 +59,8 @@ export class EmailService {
   }
 
   async sendOrderStatusChangedToCustomer(input: OrderNotificationInput) {
-    const subject = `Order update ${input.orderNumber}`;
-    const content = this.renderOrderEmail({
-      ...input,
-      includeCustomer: false,
+    const subject = `Actualizacion de pedido ${input.orderNumber}`;
+    const content = this.renderCustomerOrderEmail(input, {
       includeNotes: false,
       includeStatus: true,
     });
@@ -106,94 +97,89 @@ export class EmailService {
     }
   }
 
-  private renderOrderEmail(input: OrderRenderInput) {
-    const createdAt = this.formatDate(input.createdAt);
-    const totalAmount = this.formatCurrency(
-      input.totalAmount,
-      input.currency ?? 'COP',
-    );
-    const items = input.items.map((item) => ({
-      ...item,
-      unitPriceFormatted: this.formatCurrency(
-        item.unitPrice,
-        input.currency ?? 'COP',
-      ),
-      lineTotalFormatted: this.formatCurrency(
-        item.lineTotal,
-        input.currency ?? 'COP',
-      ),
-    }));
-
-    const statusLine = input.includeStatus && input.status ? input.status : '';
-    const notesLine = input.includeNotes ? (input.customerNotes ?? '') : '';
+  private renderCustomerOrderEmail(
+    input: OrderNotificationInput,
+    options: { includeNotes: boolean; includeStatus: boolean },
+  ) {
+    const summary = this.buildOrderSummary(input);
+    const statusLine = options.includeStatus
+      ? `Estado: ${summary.statusLabel}`
+      : '';
+    const notesLine =
+      options.includeNotes && input.customerNotes
+        ? `Notas: ${input.customerNotes}`
+        : '';
+    const customerName = input.customer.name;
+    const brand = 'Higinex';
 
     const text = [
-      `Order: ${input.orderNumber}`,
-      `Date: ${createdAt}`,
-      statusLine ? `Status: ${statusLine}` : '',
+      `Hola ${customerName},`,
       '',
-      'Items:',
-      ...items.map(
+      `Gracias por tu compra en ${brand}. Recibimos tu pedido y lo estamos procesando.`,
+      '',
+      `Pedido: ${input.orderNumber}`,
+      `Fecha: ${summary.createdAtLabel}`,
+      statusLine,
+      '',
+      'Resumen de tu pedido:',
+      ...summary.items.map(
         (item) =>
-          `- ${item.productName} / ${item.variantName ?? ''} x${
-            item.quantity
-          } = ${item.lineTotalFormatted}`,
+          `- ${item.displayName} | Cantidad: ${item.quantity} | Precio unitario: ${item.unitPriceFormatted} | Total: ${item.lineTotalFormatted}`,
       ),
       '',
-      `Total: ${totalAmount}`,
-      notesLine ? `Notes: ${notesLine}` : '',
-      input.includeCustomer
-        ? [
-            '',
-            'Customer:',
-            `Name: ${input.customer.name}`,
-            `Email: ${input.customer.email}`,
-            input.customer.phone ? `Phone: ${input.customer.phone}` : '',
-            input.customer.documentType && input.customer.documentNumber
-              ? `Document: ${input.customer.documentType} ${input.customer.documentNumber}`
-              : '',
-          ]
-            .filter(Boolean)
-            .join('\n')
-        : '',
+      `Subtotal: ${summary.subtotalFormatted}`,
+      `Envio: ${summary.shippingFormatted}`,
+      `Descuentos: ${summary.discountFormatted}`,
+      `Total: ${summary.totalFormatted}`,
+      notesLine,
+      '',
+      `Te avisaremos cuando el estado cambie.`,
+      `Equipo ${brand}`,
     ]
       .filter(Boolean)
       .join('\n');
 
     const html = `
       <div style="font-family: Arial, sans-serif; font-size: 14px; color: #111;">
-        <h2>Order ${this.escapeHtml(input.orderNumber)}</h2>
-        <p><strong>Date:</strong> ${this.escapeHtml(createdAt)}</p>
-        ${
-          statusLine
-            ? `<p><strong>Status:</strong> ${this.escapeHtml(statusLine)}</p>`
-            : ''
-        }
-        <h3>Items</h3>
-        <table style="width: 100%; border-collapse: collapse;">
+        <h2 style="margin-bottom: 4px;">Hola ${this.escapeHtml(
+          customerName,
+        )},</h2>
+        <p style="margin-top: 0;">Gracias por tu compra en ${this.escapeHtml(
+          brand,
+        )}. Recibimos tu pedido y lo estamos procesando.</p>
+        <div style="background: #f7f7f7; padding: 12px; border-radius: 8px; margin: 16px 0;">
+          <p style="margin: 0;"><strong>Pedido:</strong> ${this.escapeHtml(
+            input.orderNumber,
+          )}</p>
+          <p style="margin: 6px 0 0;"><strong>Fecha:</strong> ${this.escapeHtml(
+            summary.createdAtLabel,
+          )}</p>
+          ${
+            statusLine
+              ? `<p style="margin: 6px 0 0;"><strong>${this.escapeHtml(
+                  statusLine,
+                )}</strong></p>`
+              : ''
+          }
+        </div>
+        <h3 style="margin-bottom: 8px;">Resumen de tu pedido</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
           <thead>
             <tr>
-              <th style="text-align: left; border-bottom: 1px solid #ddd; padding: 6px;">Item</th>
-              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Qty</th>
-              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Unit</th>
+              <th style="text-align: left; border-bottom: 1px solid #ddd; padding: 6px;">Producto</th>
+              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Cantidad</th>
+              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Precio unitario</th>
               <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Total</th>
             </tr>
           </thead>
           <tbody>
-            ${items
+            ${summary.items
               .map(
                 (item) => `
               <tr>
-                <td style="padding: 6px; border-bottom: 1px solid #eee;">
-                  ${this.escapeHtml(item.productName)}
-                  ${
-                    item.variantName
-                      ? `<div style="color: #666;">${this.escapeHtml(
-                          item.variantName,
-                        )}</div>`
-                      : ''
-                  }
-                </td>
+                <td style="padding: 6px; border-bottom: 1px solid #eee;">${this.escapeHtml(
+                  item.displayName,
+                )}</td>
                 <td style="text-align: right; padding: 6px; border-bottom: 1px solid #eee;">${
                   item.quantity
                 }</td>
@@ -209,39 +195,236 @@ export class EmailService {
               .join('')}
           </tbody>
         </table>
-        <p><strong>Total:</strong> ${this.escapeHtml(totalAmount)}</p>
+        <table style="width: 100%; margin-top: 12px; font-size: 13px;">
+          <tbody>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Subtotal:</td>
+              <td style="text-align: right; padding: 4px 0; width: 120px;">${this.escapeHtml(
+                summary.subtotalFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Envio:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.shippingFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Descuentos:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.discountFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 6px 0; font-weight: bold;">Total:</td>
+              <td style="text-align: right; padding: 6px 0; font-weight: bold;">${this.escapeHtml(
+                summary.totalFormatted,
+              )}</td>
+            </tr>
+          </tbody>
+        </table>
         ${
           notesLine
-            ? `<p><strong>Notes:</strong> ${this.escapeHtml(notesLine)}</p>`
+            ? `<p style="margin-top: 12px;"><strong>Notas:</strong> ${this.escapeHtml(
+                input.customerNotes ?? '',
+              )}</p>`
             : ''
         }
-        ${
-          input.includeCustomer
-            ? `
-        <h3>Customer</h3>
-        <p><strong>Name:</strong> ${this.escapeHtml(input.customer.name)}</p>
-        <p><strong>Email:</strong> ${this.escapeHtml(input.customer.email)}</p>
+        <p style="margin-top: 16px;">Te avisaremos cuando el estado cambie.</p>
+        <p style="margin-top: 12px;">Equipo ${this.escapeHtml(brand)}</p>
+      </div>
+    `.trim();
+
+    return { text, html };
+  }
+
+  private renderCompanyOrderEmail(input: OrderNotificationInput) {
+    const summary = this.buildOrderSummary(input);
+    const statusLine = `Estado: ${summary.statusLabel}`;
+
+    const text = [
+      'Nuevo pedido recibido',
+      '',
+      `Pedido: ${input.orderNumber}`,
+      `Fecha: ${summary.createdAtLabel}`,
+      statusLine,
+      '',
+      'Cliente:',
+      `Nombre: ${input.customer.name}`,
+      `Email: ${input.customer.email}`,
+      input.customer.phone ? `Telefono: ${input.customer.phone}` : '',
+      input.customer.documentType && input.customer.documentNumber
+        ? `Documento: ${input.customer.documentType} ${input.customer.documentNumber}`
+        : '',
+      '',
+      'Items:',
+      ...summary.items.map(
+        (item) =>
+          `- ${item.displayName} | Cantidad: ${item.quantity} | Precio unitario: ${item.unitPriceFormatted} | Total: ${item.lineTotalFormatted}`,
+      ),
+      '',
+      `Subtotal: ${summary.subtotalFormatted}`,
+      `Envio: ${summary.shippingFormatted}`,
+      `Descuentos: ${summary.discountFormatted}`,
+      `Total: ${summary.totalFormatted}`,
+      input.customerNotes ? `Notas: ${input.customerNotes}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; font-size: 14px; color: #111;">
+        <h2 style="margin-bottom: 4px;">Nuevo pedido recibido</h2>
+        <div style="background: #f7f7f7; padding: 12px; border-radius: 8px; margin: 16px 0;">
+          <p style="margin: 0;"><strong>Pedido:</strong> ${this.escapeHtml(
+            input.orderNumber,
+          )}</p>
+          <p style="margin: 6px 0 0;"><strong>Fecha:</strong> ${this.escapeHtml(
+            summary.createdAtLabel,
+          )}</p>
+          <p style="margin: 6px 0 0;"><strong>${this.escapeHtml(
+            statusLine,
+          )}</strong></p>
+        </div>
+        <h3 style="margin-bottom: 8px;">Cliente</h3>
+        <p style="margin: 0;"><strong>Nombre:</strong> ${this.escapeHtml(
+          input.customer.name,
+        )}</p>
+        <p style="margin: 4px 0 0;"><strong>Email:</strong> ${this.escapeHtml(
+          input.customer.email,
+        )}</p>
         ${
           input.customer.phone
-            ? `<p><strong>Phone:</strong> ${this.escapeHtml(
+            ? `<p style="margin: 4px 0 0;"><strong>Telefono:</strong> ${this.escapeHtml(
                 input.customer.phone,
               )}</p>`
             : ''
         }
         ${
           input.customer.documentType && input.customer.documentNumber
-            ? `<p><strong>Document:</strong> ${this.escapeHtml(
+            ? `<p style="margin: 4px 0 0;"><strong>Documento:</strong> ${this.escapeHtml(
                 `${input.customer.documentType} ${input.customer.documentNumber}`,
               )}</p>`
             : ''
         }
-        `
+        <h3 style="margin: 16px 0 8px;">Items</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #ddd; padding: 6px;">Producto</th>
+              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Cantidad</th>
+              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Precio unitario</th>
+              <th style="text-align: right; border-bottom: 1px solid #ddd; padding: 6px;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summary.items
+              .map(
+                (item) => `
+              <tr>
+                <td style="padding: 6px; border-bottom: 1px solid #eee;">${this.escapeHtml(
+                  item.displayName,
+                )}</td>
+                <td style="text-align: right; padding: 6px; border-bottom: 1px solid #eee;">${
+                  item.quantity
+                }</td>
+                <td style="text-align: right; padding: 6px; border-bottom: 1px solid #eee;">${
+                  item.unitPriceFormatted
+                }</td>
+                <td style="text-align: right; padding: 6px; border-bottom: 1px solid #eee;">${
+                  item.lineTotalFormatted
+                }</td>
+              </tr>
+            `,
+              )
+              .join('')}
+          </tbody>
+        </table>
+        <table style="width: 100%; margin-top: 12px; font-size: 13px;">
+          <tbody>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Subtotal:</td>
+              <td style="text-align: right; padding: 4px 0; width: 120px;">${this.escapeHtml(
+                summary.subtotalFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Envio:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.shippingFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 4px 0;">Descuentos:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.discountFormatted,
+              )}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 6px 0; font-weight: bold;">Total:</td>
+              <td style="text-align: right; padding: 6px 0; font-weight: bold;">${this.escapeHtml(
+                summary.totalFormatted,
+              )}</td>
+            </tr>
+          </tbody>
+        </table>
+        ${
+          input.customerNotes
+            ? `<p style="margin-top: 12px;"><strong>Notas:</strong> ${this.escapeHtml(
+                input.customerNotes,
+              )}</p>`
             : ''
         }
       </div>
     `.trim();
 
     return { text, html };
+  }
+
+  private buildOrderSummary(input: OrderNotificationInput) {
+    const currency = input.currency ?? 'COP';
+    const createdAtLabel = this.formatDate(input.createdAt);
+    const statusLabel = this.getStatusLabel(input.status);
+
+    const items = input.items.map((item) => {
+      const displayName = this.formatItemName(
+        item.productName,
+        item.variantName,
+      );
+      const unitPriceFormatted = this.formatCurrency(item.unitPrice, currency);
+      const lineTotalFormatted = this.formatCurrency(item.lineTotal, currency);
+
+      return {
+        displayName,
+        quantity: item.quantity,
+        unitPriceFormatted,
+        lineTotalFormatted,
+        lineTotalValue: this.toNumber(item.lineTotal) ?? 0,
+      };
+    });
+
+    const computedSubtotal = items.reduce(
+      (sum, item) => sum + item.lineTotalValue,
+      0,
+    );
+
+    const subtotalValue =
+      this.toNumber(input.subtotalAmount) ?? computedSubtotal;
+    const shippingValue = this.toNumber(input.shippingAmount) ?? 0;
+    const discountValue = this.toNumber(input.discountAmount) ?? 0;
+    const totalValue =
+      this.toNumber(input.totalAmount) ??
+      subtotalValue + shippingValue - discountValue;
+
+    return {
+      createdAtLabel,
+      statusLabel,
+      items,
+      subtotalFormatted: this.formatCurrency(subtotalValue, currency),
+      shippingFormatted: this.formatCurrency(shippingValue, currency),
+      discountFormatted: this.formatCurrency(discountValue, currency),
+      totalFormatted: this.formatCurrency(totalValue, currency),
+    };
   }
 
   private formatCurrency(value: number | string, currency: string) {
@@ -257,10 +440,46 @@ export class EmailService {
 
   private formatDate(date: Date) {
     try {
-      return date.toISOString();
+      return new Intl.DateTimeFormat('es-CO', {
+        dateStyle: 'long',
+        timeStyle: 'short',
+      }).format(date);
     } catch {
       return String(date);
     }
+  }
+
+  private getStatusLabel(status?: string) {
+    if (!status) return 'En proceso';
+
+    const labels: Record<string, string> = {
+      CREATED: 'Creado',
+      PENDING_PAYMENT: 'Pendiente de pago',
+      PAID: 'Pagado',
+      PREPARING: 'En preparacion',
+      SHIPPED: 'Enviado',
+      DELIVERED: 'Entregado',
+      CANCELED: 'Cancelado',
+      RETURN_REQUESTED: 'Devolucion solicitada',
+      RETURNED: 'Devuelto',
+      REFUNDED: 'Reembolsado',
+    };
+
+    return labels[status] ?? 'En proceso';
+  }
+
+  private formatItemName(productName: string, variantName?: string) {
+    if (!variantName || variantName.trim().length === 0) {
+      return productName;
+    }
+
+    return `${productName} - ${variantName}`;
+  }
+
+  private toNumber(value: number | string | undefined | null) {
+    if (value === undefined || value === null) return null;
+    const numeric = typeof value === 'string' ? Number(value) : value;
+    return Number.isFinite(numeric) ? numeric : null;
   }
 
   private escapeHtml(input: string) {
@@ -361,14 +580,11 @@ type OrderNotificationInput = {
   createdAt: Date;
   status?: string;
   currency?: string;
+  subtotalAmount?: number | string;
+  shippingAmount?: number | string;
+  discountAmount?: number | string;
   totalAmount: number | string;
   customer: OrderNotificationCustomer;
   items: OrderNotificationItem[];
   customerNotes?: string;
-};
-
-type OrderRenderInput = OrderNotificationInput & {
-  includeCustomer: boolean;
-  includeStatus: boolean;
-  includeNotes: boolean;
 };

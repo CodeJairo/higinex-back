@@ -647,6 +647,9 @@ export class OrdersService {
       createdAt: order.createdAt,
       status: order.status,
       currency: order.currency,
+      subtotalAmount: order.subtotalAmount.toString(),
+      shippingAmount: order.shippingAmount.toString(),
+      discountAmount: order.discountAmount.toString(),
       totalAmount: order.totalAmount.toString(),
       customerNotes: order.customerNotes ?? undefined,
       customer: {
