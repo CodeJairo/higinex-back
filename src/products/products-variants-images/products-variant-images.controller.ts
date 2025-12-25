@@ -20,7 +20,6 @@ import { UpdateProductVariantImageDto } from './dto/update-product-variant-image
 import { ProductVariantImagesService } from './products-variant-images.service';
 
 @Controller('products/variants/:variantId/images')
-@Auth()
 export class ProductVariantImagesController {
   constructor(
     private readonly productVariantImagesService: ProductVariantImagesService,
