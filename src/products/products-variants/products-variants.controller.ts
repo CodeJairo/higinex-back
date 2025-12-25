@@ -7,9 +7,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { Auth } from 'src/auth/decorators/auth.decorator';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
+import { GetAllProductVariantsQueryDto } from './dto/get-all-product-variants-query.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 import { ProductsVariantsService } from './products-variants.service';
 
@@ -30,6 +32,11 @@ export class ProductVariantsController {
       productId,
       createProductVariantDto,
     );
+  }
+
+  @Get()
+  async listAllVariants(@Query() query: GetAllProductVariantsQueryDto) {
+    return await this.productsVariantsService.listAllVariants(query);
   }
 
   @Get(':variantId')

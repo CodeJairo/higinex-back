@@ -1,7 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ProductStatus } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ProductStatusParam } from '../dto/get-all-product-query.dto';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
+import {
+  GetAllProductVariantsQueryDto,
+  VariantStatusParam,
+} from './dto/get-all-product-variants-query.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 
 @Injectable()
@@ -113,6 +119,77 @@ export class ProductsVariantsService {
         logger: this.logger,
         context: 'ProductsVariantsService.getProductVariant',
         defaultMessage: 'Failed to get product variant',
+      });
+    }
+  }
+
+  async listAllVariants({
+    status = VariantStatusParam.ACTIVE,
+    productStatus = ProductStatusParam.PUBLISHED,
+    limit = 10,
+    offset = 0,
+  }: GetAllProductVariantsQueryDto) {
+    try {
+      return await this.prisma.productVariant.findMany({
+        where: {
+          deletedAt: null,
+          ...(status === VariantStatusParam.ALL
+            ? {}
+            : { isActive: status === VariantStatusParam.ACTIVE }),
+          product: {
+            deletedAt: null,
+            ...(productStatus === ProductStatusParam.ALL
+              ? {}
+              : {
+                  status:
+                    productStatus === ProductStatusParam.PUBLISHED
+                      ? ProductStatus.PUBLISHED
+                      : ProductStatus.ARCHIVED,
+                }),
+          },
+        },
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          productId: true,
+          sku: true,
+          gtin: true,
+          name: true,
+          attributesJson: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+            },
+          },
+          images: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              altText: true,
+              sortOrder: true,
+              createdAt: true,
+              mimeType: true,
+              filename: true,
+            },
+          },
+          inventory: {
+            select: { onHand: true, reserved: true, updatedAt: true },
+          },
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductsVariantsService.listAllVariants',
+        defaultMessage: 'Failed to list product variants',
       });
     }
   }
