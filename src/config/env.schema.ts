@@ -69,4 +69,5 @@ export const envConfigSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
+  EMAIL_VERIFY_URL: Joi.string().optional(),
 }).unknown(true);

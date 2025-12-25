@@ -5,4 +5,5 @@ export interface ValidatedUserPayload {
   email: string;
   isActive: boolean;
   role: Role;
+  customer?: object;
 }

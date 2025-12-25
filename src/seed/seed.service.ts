@@ -45,6 +45,7 @@ export class SeedService implements OnModuleInit {
         password: await bcrypt.hash(password, rounds),
         role: Role.ADMIN,
         isActive: true,
+        emailVerifiedAt: new Date(),
       },
     });
 

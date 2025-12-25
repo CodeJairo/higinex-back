@@ -27,7 +27,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const user = await this.prisma.user.findUnique({
       where: { id },
-      omit: { password: true },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        role: true,
+        deletedAt: true,
+        emailVerifiedAt: true,
+        customer: true,
+      },
     });
 
     if (!user)
@@ -39,6 +47,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user.isActive)
       throw new ForbiddenException('Invalid Credentials - User is inactive');
 
-    return user;
+    if (!user.emailVerifiedAt)
+      throw new ForbiddenException('Invalid Credentials - Email not verified');
+
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      customer: user.customer ?? undefined,
+    };
   }
 }

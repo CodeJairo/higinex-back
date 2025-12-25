@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -14,6 +15,9 @@ import { Auth } from './decorators/auth.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
+import { RequestEmailDto } from './dto/request-email.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailTokenDto } from './dto/verify-email-token.dto';
 import type { ValidatedUserPayload } from './interfaces/validated-user-payload.interface';
 import { getCookieValue } from 'src/common/helpers/cookie.helper';
 
@@ -49,6 +53,30 @@ export class AuthController {
     );
 
     return body;
+  }
+
+  @Post('email/resend')
+  @HttpCode(200)
+  resendEmailVerification(@Body() requestEmailDto: RequestEmailDto) {
+    return this.authService.resendEmailVerification(requestEmailDto);
+  }
+
+  @Get('email/verify')
+  @HttpCode(200)
+  verifyEmail(@Query() verifyEmailTokenDto: VerifyEmailTokenDto) {
+    return this.authService.verifyEmailToken(verifyEmailTokenDto);
+  }
+
+  @Post('password/forgot')
+  @HttpCode(200)
+  requestPasswordReset(@Body() requestEmailDto: RequestEmailDto) {
+    return this.authService.requestPasswordReset(requestEmailDto);
+  }
+
+  @Post('password/reset')
+  @HttpCode(200)
+  resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 
   @Post('refresh')

@@ -73,6 +73,36 @@ export class EmailService {
     });
   }
 
+  async sendEmailVerificationLink(input: EmailVerificationLinkInput) {
+    const subject = 'Verifica tu correo';
+    const text = [
+      'Confirma tu correo usando el siguiente enlace:',
+      input.link,
+      '',
+      `Este enlace vence en ${input.expiresInMinutes} minutos.`,
+    ].join('\n');
+
+    await this.sendMail({
+      to: input.email,
+      subject,
+      text,
+    });
+  }
+
+  async sendPasswordResetCode(input: AuthCodeEmailInput) {
+    const subject = 'Codigo para restablecer tu contrasena';
+    const text = [
+      `Tu codigo para restablecer la contrasena es ${input.code}.`,
+      `Este codigo vence en ${input.expiresInMinutes} minutos.`,
+    ].join('\n');
+
+    await this.sendMail({
+      to: input.email,
+      subject,
+      text,
+    });
+  }
+
   private async sendMail(payload: EmailPayload) {
     if (!this.transporter) {
       this.logger.warn('Email transport is not configured');
@@ -557,6 +587,18 @@ type EmailPayload = {
   subject: string;
   text: string;
   html?: string;
+};
+
+type EmailVerificationLinkInput = {
+  email: string;
+  link: string;
+  expiresInMinutes: number;
+};
+
+type AuthCodeEmailInput = {
+  email: string;
+  code: string;
+  expiresInMinutes: number;
 };
 
 type OrderNotificationItem = {

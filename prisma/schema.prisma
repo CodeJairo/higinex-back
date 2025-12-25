@@ -14,6 +14,11 @@ enum Role {
   ADMIN
 }
 
+enum AuthCodeType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
 enum ProductStatus {
   PUBLISHED
   ARCHIVED
@@ -104,14 +109,32 @@ model User {
   password           String
   role               Role                @default(USER)
   isActive           Boolean             @default(true)
+  emailVerifiedAt    DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
   customer           Customer?
   inventoryMovements InventoryMovement[] @relation("InventoryMovedBy")
+  authCodes          AuthCode[]
 
   orderStatusChanges OrderStatusHistory[] @relation("OrderStatusChangedBy")
   orderNotes         OrderNote[]
+}
+
+model AuthCode {
+  id        String       @id @default(uuid())
+  userId    String
+  type      AuthCodeType
+  codeHash  String
+  attempts  Int          @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, type])
+  @@index([expiresAt])
 }
 
 model Customer {
