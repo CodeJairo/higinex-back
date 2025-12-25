@@ -52,6 +52,70 @@ export class PricingService {
     }
   }
 
+  async getVariantPricesForUserOrNull(
+    userId: string,
+    variantIds: string[],
+  ): Promise<Map<string, number | null>> {
+    try {
+      const uniqueIds = Array.from(
+        new Set(variantIds.filter((id) => typeof id === 'string' && id.trim())),
+      );
+
+      if (uniqueIds.length === 0) return new Map();
+
+      const customer = await this.prisma.customer.findFirst({
+        where: { userId, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (!customer) {
+        return new Map(uniqueIds.map((variantId) => [variantId, null]));
+      }
+
+      const now = new Date();
+      const contract = await this.prisma.contract.findFirst({
+        where: {
+          customerId: customer.id,
+          isActive: true,
+          deletedAt: null,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gte: now } }],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+
+      if (!contract) {
+        return new Map(uniqueIds.map((variantId) => [variantId, null]));
+      }
+
+      const items = await this.prisma.contractItem.findMany({
+        where: {
+          contractId: contract.id,
+          variantId: { in: uniqueIds },
+        },
+        select: { variantId: true, unitPriceCop: true },
+      });
+
+      const byVariantId = new Map(
+        items.map((item) => [item.variantId, item.unitPriceCop]),
+      );
+
+      return new Map(
+        uniqueIds.map((variantId) => [
+          variantId,
+          byVariantId.get(variantId) ?? null,
+        ]),
+      );
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'PricingService.getVariantPricesForUserOrNull',
+        defaultMessage: 'Failed to get variant prices',
+      });
+    }
+  }
+
   async getVariantPricesForUserWithTransaction(
     tx: Prisma.TransactionClient,
     userId: string,

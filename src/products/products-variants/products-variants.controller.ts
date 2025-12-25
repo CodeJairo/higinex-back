@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Auth } from 'src/auth/decorators/auth.decorator';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { GetAllProductVariantsQueryDto } from './dto/get-all-product-variants-query.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
@@ -35,13 +36,22 @@ export class ProductVariantsController {
   }
 
   @Get()
-  async listAllVariants(@Query() query: GetAllProductVariantsQueryDto) {
-    return await this.productsVariantsService.listAllVariants(query);
+  async listAllVariants(
+    @CurrentUser('id') userId: string,
+    @Query() query: GetAllProductVariantsQueryDto,
+  ) {
+    return await this.productsVariantsService.listAllVariants(userId, query);
   }
 
   @Get(':variantId')
-  async getVariant(@Param('variantId', ParseUUIDPipe) variantId: string) {
-    return await this.productsVariantsService.getProductVariant(variantId);
+  async getVariant(
+    @CurrentUser('id') userId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+  ) {
+    return await this.productsVariantsService.getProductVariant(
+      userId,
+      variantId,
+    );
   }
 
   @Patch('update/:variantId')

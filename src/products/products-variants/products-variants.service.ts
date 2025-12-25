@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ProductStatus } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
+import { PricingService } from 'src/pricing/pricing.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ProductStatusParam } from '../dto/get-all-product-query.dto';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
@@ -13,7 +14,10 @@ import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 @Injectable()
 export class ProductsVariantsService {
   private readonly logger = new Logger(ProductsVariantsService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pricingService: PricingService,
+  ) {}
 
   async createProductVariant(
     productId: string,
@@ -80,7 +84,7 @@ export class ProductsVariantsService {
     }
   }
 
-  async getProductVariant(variantId: string) {
+  async getProductVariant(userId: string, variantId: string) {
     try {
       const variant = await this.prisma.productVariant.findFirst({
         where: { id: variantId, deletedAt: null },
@@ -113,7 +117,15 @@ export class ProductsVariantsService {
 
       if (!variant) throw new NotFoundException('Variant not found');
 
-      return variant;
+      const priceByVariant =
+        await this.pricingService.getVariantPricesForUserOrNull(userId, [
+          variantId,
+        ]);
+
+      return {
+        ...variant,
+        unitPriceCop: priceByVariant.get(variantId) ?? null,
+      };
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -123,14 +135,17 @@ export class ProductsVariantsService {
     }
   }
 
-  async listAllVariants({
-    status = VariantStatusParam.ACTIVE,
-    productStatus = ProductStatusParam.PUBLISHED,
-    limit = 10,
-    offset = 0,
-  }: GetAllProductVariantsQueryDto) {
+  async listAllVariants(
+    userId: string,
+    {
+      status = VariantStatusParam.ACTIVE,
+      productStatus = ProductStatusParam.PUBLISHED,
+      limit = 10,
+      offset = 0,
+    }: GetAllProductVariantsQueryDto,
+  ) {
     try {
-      return await this.prisma.productVariant.findMany({
+      const variants = await this.prisma.productVariant.findMany({
         where: {
           deletedAt: null,
           ...(status === VariantStatusParam.ALL
@@ -185,6 +200,19 @@ export class ProductsVariantsService {
           },
         },
       });
+
+      if (variants.length === 0) return variants;
+
+      const priceByVariant =
+        await this.pricingService.getVariantPricesForUserOrNull(
+          userId,
+          variants.map((variant) => variant.id),
+        );
+
+      return variants.map((variant) => ({
+        ...variant,
+        unitPriceCop: priceByVariant.get(variant.id) ?? null,
+      }));
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
