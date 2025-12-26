@@ -16,7 +16,6 @@ export class ProductsService {
 
   async createProduct(createProductDto: CreateProductDto) {
     try {
-      this.logger.debug(`Product data: ${JSON.stringify(createProductDto)}`);
       const product = await this.prisma.product.create({
         data: createProductDto,
       });
