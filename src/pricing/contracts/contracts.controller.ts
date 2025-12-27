@@ -12,8 +12,9 @@ import {
 import { Auth } from 'src/auth/decorators/auth.decorator';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
-import { UpsertContractItemsDto } from './dto/upsert-contract-items.dto';
 import { UpdateContractItemDto } from './dto/update-contract-item.dto';
+import { UpdateContractDto } from './dto/update-contract.dto';
+import { UpsertContractItemsDto } from './dto/upsert-contract-items.dto';
 
 @Controller('contracts')
 @Auth('ADMIN')
@@ -47,6 +48,14 @@ export class ContractsController {
     return this.contractsService.getContract(contractId);
   }
 
+  @Patch(':contractId')
+  update(
+    @Param('contractId', ParseUUIDPipe) contractId: string,
+    @Body() dto: UpdateContractDto,
+  ) {
+    return this.contractsService.updateContract(contractId, dto);
+  }
+
   @Patch(':contractId/items/:variantId')
   updateItem(
     @Param('contractId', ParseUUIDPipe) contractId: string,
@@ -67,5 +76,10 @@ export class ContractsController {
     @Param('variantId', ParseUUIDPipe) variantId: string,
   ) {
     return this.contractsService.deleteContractItem(contractId, variantId);
+  }
+
+  @Delete(':contractId')
+  remove(@Param('contractId', ParseUUIDPipe) contractId: string) {
+    return this.contractsService.deleteContract(contractId);
   }
 }

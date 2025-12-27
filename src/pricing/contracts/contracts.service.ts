@@ -9,6 +9,7 @@ import { CreateContractDto } from './dto/create-contract.dto';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { UpsertContractItemsDto } from './dto/upsert-contract-items.dto';
 import { UpdateContractItemDto } from './dto/update-contract-item.dto';
+import { UpdateContractDto } from './dto/update-contract.dto';
 
 @Injectable()
 export class ContractsService {
@@ -239,6 +240,105 @@ export class ContractsService {
         logger: this.logger,
         context: 'ContractsService.getContract',
         defaultMessage: 'Failed to get contract',
+      });
+    }
+  }
+
+  async updateContract(contractId: string, dto: UpdateContractDto) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const contract = await tx.contract.findFirst({
+          where: { id: contractId, deletedAt: null },
+          select: {
+            id: true,
+            customerId: true,
+            startsAt: true,
+            endsAt: true,
+            isActive: true,
+          },
+        });
+
+        if (!contract) throw new NotFoundException('Contract not found');
+
+        const now = new Date();
+        const nextStartsAt = dto.startsAt
+          ? new Date(dto.startsAt)
+          : contract.startsAt;
+        let nextEndsAt = dto.endsAt
+          ? new Date(dto.endsAt)
+          : (contract.endsAt ?? undefined);
+
+        if (nextEndsAt && nextEndsAt.getTime() < nextStartsAt.getTime()) {
+          throw new BadRequestException('endsAt must be after startsAt');
+        }
+
+        if (dto.isActive === false && !nextEndsAt) {
+          nextEndsAt = now;
+        }
+
+        if (dto.isActive === true) {
+          await tx.contract.updateMany({
+            where: {
+              customerId: contract.customerId,
+              isActive: true,
+              deletedAt: null,
+              id: { not: contract.id },
+            },
+            data: { isActive: false, endsAt: now },
+          });
+        }
+
+        const updated = await tx.contract.update({
+          where: { id: contract.id },
+          data: {
+            ...(dto.startsAt ? { startsAt: nextStartsAt } : {}),
+            ...(dto.endsAt || (dto.isActive === false && nextEndsAt)
+              ? { endsAt: nextEndsAt }
+              : {}),
+            ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          },
+          include: { items: true },
+        });
+
+        return updated;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ContractsService.updateContract',
+        defaultMessage: 'Failed to update contract',
+      });
+    }
+  }
+
+  async deleteContract(contractId: string) {
+    try {
+      const contract = await this.prisma.contract.findFirst({
+        where: { id: contractId, deletedAt: null },
+        select: { id: true, endsAt: true },
+      });
+
+      if (!contract) throw new NotFoundException('Contract not found');
+
+      const now = new Date();
+      const updated = await this.prisma.contract.updateMany({
+        where: { id: contractId, deletedAt: null },
+        data: {
+          deletedAt: now,
+          isActive: false,
+          ...(contract.endsAt ? {} : { endsAt: now }),
+        },
+      });
+
+      if (updated.count === 0)
+        throw new NotFoundException('Contract not found');
+
+      return { message: 'Contract deleted successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ContractsService.deleteContract',
+        defaultMessage: 'Failed to delete contract',
       });
     }
   }
