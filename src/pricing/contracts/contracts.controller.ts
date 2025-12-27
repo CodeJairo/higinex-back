@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
 } from '@nestjs/common';
@@ -11,6 +13,7 @@ import { Auth } from 'src/auth/decorators/auth.decorator';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpsertContractItemsDto } from './dto/upsert-contract-items.dto';
+import { UpdateContractItemDto } from './dto/update-contract-item.dto';
 
 @Controller('contracts')
 @Auth('ADMIN')
@@ -44,8 +47,25 @@ export class ContractsController {
     return this.contractsService.getContract(contractId);
   }
 
+  @Patch(':contractId/items/:variantId')
+  updateItem(
+    @Param('contractId', ParseUUIDPipe) contractId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+    @Body() dto: UpdateContractItemDto,
+  ) {
+    return this.contractsService.updateContractItem(contractId, variantId, dto);
+  }
+
   @Get(':contractId/items')
   listItems(@Param('contractId', ParseUUIDPipe) contractId: string) {
     return this.contractsService.listContractItems(contractId);
+  }
+
+  @Delete(':contractId/items/:variantId')
+  removeItem(
+    @Param('contractId', ParseUUIDPipe) contractId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+  ) {
+    return this.contractsService.deleteContractItem(contractId, variantId);
   }
 }

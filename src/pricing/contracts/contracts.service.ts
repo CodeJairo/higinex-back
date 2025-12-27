@@ -8,6 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { UpsertContractItemsDto } from './dto/upsert-contract-items.dto';
+import { UpdateContractItemDto } from './dto/update-contract-item.dto';
 
 @Injectable()
 export class ContractsService {
@@ -144,6 +145,63 @@ export class ContractsService {
         logger: this.logger,
         context: 'ContractsService.listContractItems',
         defaultMessage: 'Failed to list contract items',
+      });
+    }
+  }
+
+  async updateContractItem(
+    contractId: string,
+    variantId: string,
+    dto: UpdateContractItemDto,
+  ) {
+    try {
+      const contract = await this.prisma.contract.findFirst({
+        where: { id: contractId, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (!contract) throw new NotFoundException('Contract not found');
+
+      const updated = await this.prisma.contractItem.updateMany({
+        where: { contractId, variantId },
+        data: { unitPriceCop: dto.unitPriceCop },
+      });
+
+      if (updated.count === 0)
+        throw new NotFoundException('Contract item not found');
+
+      return { message: 'Contract item updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ContractsService.updateContractItem',
+        defaultMessage: 'Failed to update contract item',
+      });
+    }
+  }
+
+  async deleteContractItem(contractId: string, variantId: string) {
+    try {
+      const contract = await this.prisma.contract.findFirst({
+        where: { id: contractId, deletedAt: null },
+        select: { id: true },
+      });
+
+      if (!contract) throw new NotFoundException('Contract not found');
+
+      const deleted = await this.prisma.contractItem.deleteMany({
+        where: { contractId, variantId },
+      });
+
+      if (deleted.count === 0)
+        throw new NotFoundException('Contract item not found');
+
+      return { message: 'Contract item deleted successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ContractsService.deleteContractItem',
+        defaultMessage: 'Failed to delete contract item',
       });
     }
   }
