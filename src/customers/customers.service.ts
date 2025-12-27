@@ -1,7 +1,30 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
+import { GetCustomerAddressesQueryDto } from './dto/get-customer-addresses-query.dto';
 import { GetCustomersQueryDto } from './dto/get-customers-query.dto';
+import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
+
+const customerAddressSelect = {
+  id: true,
+  label: true,
+  line1: true,
+  line2: true,
+  neighborhood: true,
+  city: true,
+  state: true,
+  postalCode: true,
+  notes: true,
+  isDefault: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class CustomersService {
@@ -108,5 +131,186 @@ export class CustomersService {
         defaultMessage: 'Failed to list customer contracts',
       });
     }
+  }
+
+  async listCustomerAddresses(
+    userId: string,
+    { limit = 10, offset = 0 }: GetCustomerAddressesQueryDto,
+  ) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+
+      return await this.prisma.customerAddress.findMany({
+        where: { customerId: customer.id, deletedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+        take: limit,
+        skip: offset,
+        select: customerAddressSelect,
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.listCustomerAddresses',
+        defaultMessage: 'Failed to list customer addresses',
+      });
+    }
+  }
+
+  async createCustomerAddress(userId: string, dto: CreateCustomerAddressDto) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+      const shouldBeDefault = dto.isDefault === true;
+
+      if (!shouldBeDefault) {
+        return await this.prisma.customerAddress.create({
+          data: {
+            customerId: customer.id,
+            label: dto.label,
+            line1: dto.line1,
+            line2: dto.line2,
+            neighborhood: dto.neighborhood,
+            city: dto.city,
+            state: dto.state,
+            postalCode: dto.postalCode,
+            notes: dto.notes,
+            isDefault: false,
+          },
+          select: customerAddressSelect,
+        });
+      }
+
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.customerAddress.updateMany({
+          where: {
+            customerId: customer.id,
+            deletedAt: null,
+            isDefault: true,
+          },
+          data: { isDefault: false },
+        });
+
+        return await tx.customerAddress.create({
+          data: {
+            customerId: customer.id,
+            label: dto.label,
+            line1: dto.line1,
+            line2: dto.line2,
+            neighborhood: dto.neighborhood,
+            city: dto.city,
+            state: dto.state,
+            postalCode: dto.postalCode,
+            notes: dto.notes,
+            isDefault: true,
+          },
+          select: customerAddressSelect,
+        });
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.createCustomerAddress',
+        defaultMessage: 'Failed to create customer address',
+      });
+    }
+  }
+
+  async updateCustomerAddress(
+    userId: string,
+    addressId: string,
+    dto: UpdateCustomerAddressDto,
+  ) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+      const updated = await this.prisma.customerAddress.updateMany({
+        where: { id: addressId, customerId: customer.id, deletedAt: null },
+        data: dto,
+      });
+
+      if (updated.count === 0) {
+        throw new NotFoundException('Address not found');
+      }
+
+      return { message: 'Address updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.updateCustomerAddress',
+        defaultMessage: 'Failed to update customer address',
+      });
+    }
+  }
+
+  async deleteCustomerAddress(userId: string, addressId: string) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+      const updated = await this.prisma.customerAddress.updateMany({
+        where: { id: addressId, customerId: customer.id, deletedAt: null },
+        data: { deletedAt: new Date(), isDefault: false },
+      });
+
+      if (updated.count === 0) {
+        throw new NotFoundException('Address not found');
+      }
+
+      return { message: 'Address deleted successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.deleteCustomerAddress',
+        defaultMessage: 'Failed to delete customer address',
+      });
+    }
+  }
+
+  async setDefaultCustomerAddress(userId: string, addressId: string) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+
+      await this.prisma.$transaction(async (tx) => {
+        const address = await tx.customerAddress.findFirst({
+          where: { id: addressId, customerId: customer.id, deletedAt: null },
+          select: { id: true },
+        });
+
+        if (!address) {
+          throw new NotFoundException('Address not found');
+        }
+
+        await tx.customerAddress.updateMany({
+          where: {
+            customerId: customer.id,
+            deletedAt: null,
+            isDefault: true,
+          },
+          data: { isDefault: false },
+        });
+
+        await tx.customerAddress.update({
+          where: { id: address.id },
+          data: { isDefault: true },
+        });
+      });
+
+      return { message: 'Default address updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.setDefaultCustomerAddress',
+        defaultMessage: 'Failed to set default customer address',
+      });
+    }
+  }
+
+  private async getCustomerForUser(userId: string) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { userId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!customer) {
+      throw new BadRequestException('Customer profile not found for user');
+    }
+
+    return customer;
   }
 }
