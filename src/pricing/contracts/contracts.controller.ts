@@ -39,6 +39,11 @@ export class ContractsController {
     );
   }
 
+  @Get(':contractId')
+  getById(@Param('contractId', ParseUUIDPipe) contractId: string) {
+    return this.contractsService.getContract(contractId);
+  }
+
   @Get(':contractId/items')
   listItems(@Param('contractId', ParseUUIDPipe) contractId: string) {
     return this.contractsService.listContractItems(contractId);

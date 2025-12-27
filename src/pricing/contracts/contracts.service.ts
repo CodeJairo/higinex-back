@@ -147,4 +147,41 @@ export class ContractsService {
       });
     }
   }
+
+  async getContract(contractId: string) {
+    try {
+      const contract = await this.prisma.contract.findFirst({
+        where: { id: contractId, deletedAt: null },
+        select: {
+          id: true,
+          customerId: true,
+          isActive: true,
+          startsAt: true,
+          endsAt: true,
+          createdAt: true,
+          updatedAt: true,
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              documentType: true,
+              documentNumber: true,
+            },
+          },
+          _count: { select: { items: true } },
+        },
+      });
+
+      if (!contract) throw new NotFoundException('Contract not found');
+
+      return contract;
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ContractsService.getContract',
+        defaultMessage: 'Failed to get contract',
+      });
+    }
+  }
 }
