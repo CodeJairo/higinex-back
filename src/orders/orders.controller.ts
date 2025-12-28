@@ -1,10 +1,19 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Auth } from 'src/auth/decorators/auth.decorator';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import type { ValidatedUserPayload } from 'src/auth/interfaces/validated-user-payload.interface';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -18,6 +27,22 @@ export class OrdersController {
     @Body() createOrderDto: CreateOrderDto,
   ) {
     return await this.ordersService.createOrder(userId, createOrderDto);
+  }
+
+  @Get()
+  async listOrders(
+    @CurrentUser() user: ValidatedUserPayload,
+    @Query() query: GetOrdersQueryDto,
+  ) {
+    return await this.ordersService.listOrders(user, query);
+  }
+
+  @Get(':orderId')
+  async getOrder(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @CurrentUser() user: ValidatedUserPayload,
+  ) {
+    return await this.ordersService.getOrder(orderId, user);
   }
 
   @Post(':orderId/confirm-payment')
@@ -35,6 +60,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/cancel')
+  @Auth('ADMIN')
   async cancelOrder(
     @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: ValidatedUserPayload,

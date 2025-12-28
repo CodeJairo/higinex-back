@@ -24,6 +24,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import {
   NormalizedOrderItem,
   OrderCreateInputWithoutNumber,
@@ -71,6 +72,57 @@ export class OrdersService {
         logger: this.logger,
         context: 'OrdersService.createOrder',
         defaultMessage: 'Failed to create order',
+      });
+    }
+  }
+
+  async listOrders(
+    user: ValidatedUserPayload,
+    { limit = 10, offset = 0 }: GetOrdersQueryDto,
+  ) {
+    try {
+      const where: Prisma.OrderWhereInput = { deletedAt: null };
+
+      if (user.role !== Role.ADMIN) {
+        const customer = await this.getCustomerForUser(this.prisma, user.id);
+        where.customerId = customer.id;
+      }
+
+      const orders = await this.prisma.order.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' },
+        include: { items: true, shippingAddress: true },
+      });
+
+      return orders.map((order) => this.withReservationExpiresAt(order));
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listOrders',
+        defaultMessage: 'Failed to list orders',
+      });
+    }
+  }
+
+  async getOrder(orderId: string, user: ValidatedUserPayload) {
+    try {
+      const order = await this.prisma.order.findFirst({
+        where: { id: orderId, deletedAt: null },
+        include: { items: true, shippingAddress: true },
+      });
+
+      if (!order) throw new NotFoundException('Order not found');
+
+      await this.assertOrderAccess(order, user);
+
+      return this.withReservationExpiresAt(order);
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.getOrder',
+        defaultMessage: 'Failed to get order',
       });
     }
   }
@@ -535,6 +587,19 @@ export class OrdersService {
     }
   }
 
+  private async assertOrderAccess(
+    order: { customerId: string | null },
+    user: ValidatedUserPayload,
+  ) {
+    if (user.role === Role.ADMIN) return;
+
+    const customer = await this.getCustomerForUser(this.prisma, user.id);
+
+    if (!order.customerId || order.customerId !== customer.id) {
+      throw new ForbiddenException('Not allowed to access this order');
+    }
+  }
+
   private ensureTransitionAllowed(current: OrderStatus, target: OrderStatus) {
     if (current === target) return;
 
@@ -544,6 +609,17 @@ export class OrdersService {
         `Order cannot transition from ${current} to ${target}`,
       );
     }
+  }
+
+  private withReservationExpiresAt<
+    T extends { status: OrderStatus; createdAt: Date },
+  >(order: T) {
+    return {
+      ...order,
+      reservationExpiresAt: PENDING_RESERVATION_STATUSES.includes(order.status)
+        ? this.getReservationExpiresAt(order.createdAt)
+        : null,
+    };
   }
 
   private isReservationExpired(order: {
