@@ -158,6 +158,7 @@ export class EmailService {
       ),
       '',
       `Subtotal: ${summary.subtotalFormatted}`,
+      `Impuestos: ${summary.taxesFormatted}`,
       `Envio: ${summary.shippingFormatted}`,
       `Descuentos: ${summary.discountFormatted}`,
       `Total: ${summary.totalFormatted}`,
@@ -234,6 +235,12 @@ export class EmailService {
               )}</td>
             </tr>
             <tr>
+              <td style="text-align: right; padding: 4px 0;">Impuestos:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.taxesFormatted,
+              )}</td>
+            </tr>
+            <tr>
               <td style="text-align: right; padding: 4px 0;">Envio:</td>
               <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
                 summary.shippingFormatted,
@@ -294,6 +301,7 @@ export class EmailService {
       ),
       '',
       `Subtotal: ${summary.subtotalFormatted}`,
+      `Impuestos: ${summary.taxesFormatted}`,
       `Envio: ${summary.shippingFormatted}`,
       `Descuentos: ${summary.discountFormatted}`,
       `Total: ${summary.totalFormatted}`,
@@ -379,6 +387,12 @@ export class EmailService {
               )}</td>
             </tr>
             <tr>
+              <td style="text-align: right; padding: 4px 0;">Impuestos:</td>
+              <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
+                summary.taxesFormatted,
+              )}</td>
+            </tr>
+            <tr>
               <td style="text-align: right; padding: 4px 0;">Envio:</td>
               <td style="text-align: right; padding: 4px 0;">${this.escapeHtml(
                 summary.shippingFormatted,
@@ -440,17 +454,19 @@ export class EmailService {
 
     const subtotalValue =
       this.toNumber(input.subtotalAmount) ?? computedSubtotal;
+    const taxesValue = this.toNumber(input.taxesAmount) ?? 0;
     const shippingValue = this.toNumber(input.shippingAmount) ?? 0;
     const discountValue = this.toNumber(input.discountAmount) ?? 0;
     const totalValue =
       this.toNumber(input.totalAmount) ??
-      subtotalValue + shippingValue - discountValue;
+      subtotalValue + taxesValue + shippingValue - discountValue;
 
     return {
       createdAtLabel,
       statusLabel,
       items,
       subtotalFormatted: this.formatCurrency(subtotalValue, currency),
+      taxesFormatted: this.formatCurrency(taxesValue, currency),
       shippingFormatted: this.formatCurrency(shippingValue, currency),
       discountFormatted: this.formatCurrency(discountValue, currency),
       totalFormatted: this.formatCurrency(totalValue, currency),
@@ -623,6 +639,7 @@ type OrderNotificationInput = {
   status?: string;
   currency?: string;
   subtotalAmount?: number | string;
+  taxesAmount?: number | string;
   shippingAmount?: number | string;
   discountAmount?: number | string;
   totalAmount: number | string;

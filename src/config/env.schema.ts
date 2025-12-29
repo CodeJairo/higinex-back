@@ -37,6 +37,7 @@ export const envConfigSchema = Joi.object({
   }),
 
   RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(60).default(45),
+  ORDER_TAX_PERCENT: Joi.number().integer().min(0).max(100).default(19),
 
   EMAIL_PROVIDER: Joi.string().valid('SMTP', 'DISABLED').default('DISABLED'),
   EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {

@@ -8,43 +8,13 @@ import {
 import { InventoryMovementType, Prisma } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
-
-type InventoryItemInput = {
-  variantId: string;
-  quantity: number;
-};
-
-type InventoryOperationOptions = {
-  orderId?: string;
-  reason?: string;
-  notes?: string;
-};
-
-type InventoryAvailability = {
-  variantId: string;
-  onHand: number;
-  reserved: number;
-  available: number;
-};
-
-type InventoryOperationResult = {
-  items: Array<{
-    variantId: string;
-    quantity: number;
-    onHandBefore: number;
-    onHandAfter: number;
-    reservedBefore: number;
-    reservedAfter: number;
-    availableBefore: number;
-    availableAfter: number;
-  }>;
-};
-
-type LockedBalance = {
-  variantId: string;
-  onHand: number;
-  reserved: number;
-};
+import {
+  InventoryAvailability,
+  InventoryItemInput,
+  InventoryOperationOptions,
+  InventoryOperationResult,
+  LockedBalance,
+} from './dto/inventory.interface';
 
 @Injectable()
 export class InventoryService {
@@ -99,6 +69,248 @@ export class InventoryService {
         logger: this.logger,
         context: 'InventoryService.getAvailability',
         defaultMessage: 'Failed to get inventory availability',
+      });
+    }
+  }
+
+  async getSummary() {
+    try {
+      const aggregate = await this.prisma.inventoryBalance.aggregate({
+        _sum: { onHand: true, reserved: true },
+      });
+
+      const totalOnHand = aggregate._sum.onHand ?? 0;
+      const totalReserved = aggregate._sum.reserved ?? 0;
+
+      return {
+        totalOnHand,
+        totalReserved,
+        totalAvailable: totalOnHand - totalReserved,
+      };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.getSummary',
+        defaultMessage: 'Failed to get inventory summary',
+      });
+    }
+  }
+
+  async listBalances({
+    limit = 10,
+    offset = 0,
+    q,
+  }: {
+    limit?: number;
+    offset?: number;
+    q?: string;
+  }) {
+    try {
+      const query = q?.trim();
+      const where: Prisma.InventoryBalanceWhereInput = {
+        variant: {
+          deletedAt: null,
+          product: { deletedAt: null },
+          ...(query
+            ? {
+                OR: [
+                  { sku: { contains: query, mode: 'insensitive' } },
+                  { gtin: { contains: query, mode: 'insensitive' } },
+                  { name: { contains: query, mode: 'insensitive' } },
+                  {
+                    product: {
+                      name: { contains: query, mode: 'insensitive' },
+                    },
+                  },
+                  {
+                    product: {
+                      slug: { contains: query, mode: 'insensitive' },
+                    },
+                  },
+                ],
+              }
+            : {}),
+        },
+      };
+
+      const balances = await this.prisma.inventoryBalance.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          variantId: true,
+          onHand: true,
+          reserved: true,
+          updatedAt: true,
+          variant: {
+            select: {
+              id: true,
+              sku: true,
+              gtin: true,
+              name: true,
+              isActive: true,
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                  status: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return balances.map((balance) => ({
+        variantId: balance.variantId,
+        onHand: balance.onHand,
+        reserved: balance.reserved,
+        available: balance.onHand - balance.reserved,
+        updatedAt: balance.updatedAt,
+        variant: balance.variant,
+      }));
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.listBalances',
+        defaultMessage: 'Failed to list inventory balances',
+      });
+    }
+  }
+
+  async listMovements({
+    limit = 10,
+    offset = 0,
+    variantId,
+    orderId,
+    type,
+    dateFrom,
+    dateTo,
+  }: {
+    limit?: number;
+    offset?: number;
+    variantId?: string;
+    orderId?: string;
+    type?: InventoryMovementType;
+    dateFrom?: string;
+    dateTo?: string;
+  }) {
+    try {
+      const occurredAt: Prisma.DateTimeFilter = {};
+      if (dateFrom) {
+        occurredAt.gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        occurredAt.lte = new Date(dateTo);
+      }
+
+      const where: Prisma.InventoryMovementWhereInput = {
+        ...(variantId ? { variantId } : {}),
+        ...(orderId ? { orderId } : {}),
+        ...(type ? { type } : {}),
+        ...(Object.keys(occurredAt).length > 0 ? { occurredAt } : {}),
+      };
+
+      return await this.prisma.inventoryMovement.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { occurredAt: 'desc' },
+        select: {
+          id: true,
+          variantId: true,
+          type: true,
+          quantity: true,
+          reason: true,
+          notes: true,
+          orderId: true,
+          occurredAt: true,
+          createdByUserId: true,
+          createdBy: { select: { id: true, email: true } },
+          variant: {
+            select: {
+              id: true,
+              sku: true,
+              gtin: true,
+              name: true,
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.listMovements',
+        defaultMessage: 'Failed to list inventory movements',
+      });
+    }
+  }
+
+  async adjustStock(
+    userId: string,
+    {
+      variantId,
+      quantity,
+      reason,
+      notes,
+    }: { variantId: string; quantity: number; reason?: string; notes?: string },
+  ) {
+    try {
+      if (!Number.isInteger(quantity) || quantity === 0) {
+        throw new BadRequestException('Quantity must be a non-zero integer');
+      }
+
+      return await this.prisma.$transaction(async (tx) => {
+        const balance = await this.lockBalance(tx, variantId);
+        const onHandAfter = balance.onHand + quantity;
+
+        if (onHandAfter < 0) {
+          throw new ConflictException('Insufficient stock for adjustment');
+        }
+
+        await tx.inventoryBalance.update({
+          where: { variantId },
+          data: { onHand: { increment: quantity } },
+        });
+
+        const movementType =
+          quantity > 0 ? InventoryMovementType.IN : InventoryMovementType.OUT;
+
+        await tx.inventoryMovement.create({
+          data: {
+            variantId,
+            type: movementType,
+            quantity: Math.abs(quantity),
+            reason,
+            notes,
+            createdByUserId: userId,
+          },
+        });
+
+        return {
+          variantId,
+          quantity,
+          onHandBefore: balance.onHand,
+          onHandAfter,
+          reserved: balance.reserved,
+          availableBefore: balance.onHand - balance.reserved,
+          availableAfter: onHandAfter - balance.reserved,
+        };
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'InventoryService.adjustStock',
+        defaultMessage: 'Failed to adjust inventory',
       });
     }
   }
@@ -249,7 +461,7 @@ export class InventoryService {
 
       movements.push({
         variantId: item.variantId,
-        type: InventoryMovementType.ADJUSTMENT,
+        type: InventoryMovementType.RESERVED,
         quantity: item.quantity,
         reason: options.reason ?? 'RESERVE',
         notes: options.notes,
@@ -301,7 +513,7 @@ export class InventoryService {
 
       movements.push({
         variantId: item.variantId,
-        type: InventoryMovementType.ADJUSTMENT,
+        type: InventoryMovementType.UNRESERVED,
         quantity: item.quantity,
         reason: options.reason ?? 'RELEASE',
         notes: options.notes,
@@ -363,7 +575,7 @@ export class InventoryService {
 
       movements.push({
         variantId: item.variantId,
-        type: InventoryMovementType.OUT,
+        type: InventoryMovementType.SOLD,
         quantity: item.quantity,
         reason: options.reason ?? 'COMMIT',
         notes: options.notes,

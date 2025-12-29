@@ -225,6 +225,7 @@ export class OrdersService {
       buyerDocumentNumber: customer.documentNumber,
       subtotalAmount: totals.subtotalAmount,
       shippingAmount: totals.shippingAmount,
+      taxesAmount: totals.taxesAmount,
       discountAmount: totals.discountAmount,
       totalAmount: totals.totalAmount,
       customerNotes: dto.customerNotes,
@@ -506,13 +507,38 @@ export class OrdersService {
       new Prisma.Decimal(0),
     );
 
+    const taxRate = new Prisma.Decimal(this.getOrderTaxPercent()).div(100);
+    const taxDivisor = taxRate.plus(1);
+    const taxesAmount = subtotalAmount
+      .minus(subtotalAmount.div(taxDivisor))
+      .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP);
+    const netSubtotalAmount = subtotalAmount.minus(taxesAmount);
     const shippingAmount = new Prisma.Decimal(0);
     const discountAmount = new Prisma.Decimal(0);
-    const totalAmount = subtotalAmount
-      .minus(discountAmount)
-      .plus(shippingAmount);
+    const totalAmount = netSubtotalAmount
+      .plus(taxesAmount)
+      .plus(shippingAmount)
+      .minus(discountAmount);
 
-    return { subtotalAmount, shippingAmount, discountAmount, totalAmount };
+    return {
+      subtotalAmount: netSubtotalAmount,
+      taxesAmount,
+      shippingAmount,
+      discountAmount,
+      totalAmount,
+    };
+  }
+
+  private getOrderTaxPercent() {
+    const configured = this.config.get<string>('ORDER_TAX_PERCENT');
+    if (!configured) return 19;
+
+    const parsed = Number(configured);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 19;
+    }
+
+    return parsed;
   }
 
   private async getShippingAddressData(
@@ -725,6 +751,7 @@ export class OrdersService {
       currency: order.currency,
       subtotalAmount: order.subtotalAmount.toString(),
       shippingAmount: order.shippingAmount.toString(),
+      taxesAmount: order.taxesAmount.toString(),
       discountAmount: order.discountAmount.toString(),
       totalAmount: order.totalAmount.toString(),
       customerNotes: order.customerNotes ?? undefined,
