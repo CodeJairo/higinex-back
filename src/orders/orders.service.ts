@@ -12,7 +12,10 @@ import {
   PaymentStatus,
   Prisma,
   ProductStatus,
+  RefundStatus,
+  ReturnStatus,
   Role,
+  ShipmentStatus,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { ValidatedUserPayload } from 'src/auth/interfaces/validated-user-payload.interface';
@@ -23,8 +26,16 @@ import { PricingService } from 'src/pricing/pricing.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
+import { CreateOrderNoteDto } from './dto/create-order-note.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateRefundDto } from './dto/create-refund.dto';
+import { CreateReturnRequestDto } from './dto/create-return-request.dto';
+import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateRefundDto } from './dto/update-refund.dto';
+import { UpdateReturnRequestDto } from './dto/update-return-request.dto';
+import { UpdateShipmentDto } from './dto/update-shipment.dto';
 import {
   NormalizedOrderItem,
   OrderCreateInputWithoutNumber,
@@ -78,7 +89,17 @@ export class OrdersService {
 
   async listOrders(
     user: ValidatedUserPayload,
-    { limit = 10, offset = 0 }: GetOrdersQueryDto,
+    {
+      limit = 10,
+      offset = 0,
+      status,
+      customerId,
+      orderNumber,
+      q,
+      dateFrom,
+      dateTo,
+      includeCount,
+    }: GetOrdersQueryDto,
   ) {
     try {
       const where: Prisma.OrderWhereInput = { deletedAt: null };
@@ -86,6 +107,45 @@ export class OrdersService {
       if (user.role !== Role.ADMIN) {
         const customer = await this.getCustomerForUser(this.prisma, user.id);
         where.customerId = customer.id;
+      } else if (customerId) {
+        where.customerId = customerId;
+      }
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (orderNumber) {
+        where.orderNumber = { contains: orderNumber, mode: 'insensitive' };
+      }
+
+      if (q) {
+        const query = q.trim();
+        if (query) {
+          where.OR = [
+            { orderNumber: { contains: query, mode: 'insensitive' } },
+            { buyerEmail: { contains: query, mode: 'insensitive' } },
+            { buyerFullName: { contains: query, mode: 'insensitive' } },
+            { buyerPhone: { contains: query, mode: 'insensitive' } },
+            {
+              customer: {
+                is: { name: { contains: query, mode: 'insensitive' } },
+              },
+            },
+            {
+              customer: {
+                is: { email: { contains: query, mode: 'insensitive' } },
+              },
+            },
+          ];
+        }
+      }
+
+      if (dateFrom || dateTo) {
+        where.createdAt = {
+          ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+          ...(dateTo ? { lte: new Date(dateTo) } : {}),
+        };
       }
 
       const orders = await this.prisma.order.findMany({
@@ -96,7 +156,13 @@ export class OrdersService {
         include: { items: true, shippingAddress: true },
       });
 
-      return orders.map((order) => this.withReservationExpiresAt(order));
+      const data = orders.map((order) => this.withReservationExpiresAt(order));
+      const includeTotals = this.parseBoolean(includeCount);
+
+      if (!includeTotals) return data;
+
+      const totalCount = await this.prisma.order.count({ where });
+      return { data, totalCount };
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -188,6 +254,589 @@ export class OrdersService {
         logger: this.logger,
         context: 'OrdersService.expireReservations',
         defaultMessage: 'Failed to expire reservations',
+      });
+    }
+  }
+
+  async updateOrderStatus(
+    orderId: string,
+    userId: string,
+    dto: UpdateOrderStatusDto,
+  ) {
+    try {
+      const allowedTargets = new Set<OrderStatus>([
+        OrderStatus.PREPARING,
+        OrderStatus.SHIPPED,
+        OrderStatus.DELIVERED,
+        OrderStatus.RETURN_REQUESTED,
+        OrderStatus.RETURNED,
+        OrderStatus.REFUNDED,
+      ]);
+
+      if (!allowedTargets.has(dto.status)) {
+        throw new BadRequestException('Status change not allowed');
+      }
+
+      return await this.prisma.$transaction(async (tx) => {
+        const order = await this.getOrderForUpdate(tx, orderId);
+
+        if (order.status === dto.status) {
+          return order;
+        }
+
+        this.ensureTransitionAllowed(order.status, dto.status);
+
+        const updated = await tx.order.update({
+          where: { id: order.id },
+          data: { status: dto.status },
+        });
+
+        await this.createStatusHistory(tx, {
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: dto.status,
+          changedByUserId: userId,
+          comment: dto.comment,
+        });
+
+        return updated;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.updateOrderStatus',
+        defaultMessage: 'Failed to update order status',
+      });
+    }
+  }
+
+  async listOrderNotes(orderId: string) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.orderNote.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderId: true,
+          visibility: true,
+          message: true,
+          createdAt: true,
+          createdByUserId: true,
+          createdBy: { select: { id: true, email: true } },
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listOrderNotes',
+        defaultMessage: 'Failed to list order notes',
+      });
+    }
+  }
+
+  async createOrderNote(
+    orderId: string,
+    userId: string,
+    dto: CreateOrderNoteDto,
+  ) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.orderNote.create({
+        data: {
+          orderId,
+          visibility: dto.visibility ?? 'INTERNAL',
+          message: dto.message,
+          createdByUserId: userId,
+        },
+        select: {
+          id: true,
+          orderId: true,
+          visibility: true,
+          message: true,
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.createOrderNote',
+        defaultMessage: 'Failed to create order note',
+      });
+    }
+  }
+
+  async deleteOrderNote(orderId: string, noteId: string) {
+    try {
+      const deleted = await this.prisma.orderNote.deleteMany({
+        where: { id: noteId, orderId },
+      });
+
+      if (deleted.count === 0) throw new NotFoundException('Note not found');
+
+      return { message: 'Order note deleted successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.deleteOrderNote',
+        defaultMessage: 'Failed to delete order note',
+      });
+    }
+  }
+
+  async listShipments(orderId: string) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.shipment.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderId: true,
+          carrierName: true,
+          trackingNumber: true,
+          trackingUrl: true,
+          status: true,
+          shippingCostAmount: true,
+          shippedAt: true,
+          deliveredAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listShipments',
+        defaultMessage: 'Failed to list shipments',
+      });
+    }
+  }
+
+  async createShipment(orderId: string, dto: CreateShipmentDto) {
+    try {
+      await this.assertOrderExists(orderId);
+      const status = dto.status ?? ShipmentStatus.CREATED;
+      const dates = this.resolveShipmentDates(status);
+
+      return await this.prisma.shipment.create({
+        data: {
+          orderId,
+          carrierName: dto.carrierName,
+          trackingNumber: dto.trackingNumber,
+          trackingUrl: dto.trackingUrl,
+          status,
+          shippingCostAmount: dto.shippingCostAmount ?? 0,
+          ...(dates.shippedAt ? { shippedAt: dates.shippedAt } : {}),
+          ...(dates.deliveredAt ? { deliveredAt: dates.deliveredAt } : {}),
+        },
+        select: {
+          id: true,
+          orderId: true,
+          carrierName: true,
+          trackingNumber: true,
+          trackingUrl: true,
+          status: true,
+          shippingCostAmount: true,
+          shippedAt: true,
+          deliveredAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.createShipment',
+        defaultMessage: 'Failed to create shipment',
+      });
+    }
+  }
+
+  async updateShipment(
+    orderId: string,
+    shipmentId: string,
+    dto: UpdateShipmentDto,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const shipment = await tx.shipment.findFirst({
+          where: { id: shipmentId, orderId },
+        });
+
+        if (!shipment) throw new NotFoundException('Shipment not found');
+
+        const data: Prisma.ShipmentUpdateInput = {
+          ...(dto.carrierName !== undefined
+            ? { carrierName: dto.carrierName }
+            : {}),
+          ...(dto.trackingNumber !== undefined
+            ? { trackingNumber: dto.trackingNumber }
+            : {}),
+          ...(dto.trackingUrl !== undefined
+            ? { trackingUrl: dto.trackingUrl }
+            : {}),
+          ...(typeof dto.shippingCostAmount === 'number'
+            ? { shippingCostAmount: dto.shippingCostAmount }
+            : {}),
+          ...(dto.status ? { status: dto.status } : {}),
+        };
+
+        if (dto.status) {
+          const dates = this.resolveShipmentDates(
+            dto.status,
+            shipment.shippedAt,
+            shipment.deliveredAt,
+          );
+          if (dates.shippedAt) data.shippedAt = dates.shippedAt;
+          if (dates.deliveredAt) data.deliveredAt = dates.deliveredAt;
+        }
+
+        const updated = await tx.shipment.update({
+          where: { id: shipment.id },
+          data,
+          select: {
+            id: true,
+            orderId: true,
+            carrierName: true,
+            trackingNumber: true,
+            trackingUrl: true,
+            status: true,
+            shippingCostAmount: true,
+            shippedAt: true,
+            deliveredAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        return updated;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.updateShipment',
+        defaultMessage: 'Failed to update shipment',
+      });
+    }
+  }
+
+  async listPayments(orderId: string) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.payment.findMany({
+        where: { orderId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderId: true,
+          method: true,
+          status: true,
+          amount: true,
+          paidAt: true,
+          reference: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listPayments',
+        defaultMessage: 'Failed to list payments',
+      });
+    }
+  }
+
+  async listRefunds(orderId: string) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.refund.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderId: true,
+          paymentId: true,
+          amount: true,
+          method: true,
+          status: true,
+          processedAt: true,
+          reference: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listRefunds',
+        defaultMessage: 'Failed to list refunds',
+      });
+    }
+  }
+
+  async createRefund(orderId: string, userId: string, dto: CreateRefundDto) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const order = await tx.order.findFirst({
+          where: { id: orderId, deletedAt: null },
+          select: { id: true, status: true },
+        });
+        if (!order) throw new NotFoundException('Order not found');
+
+        if (dto.paymentId) {
+          const payment = await tx.payment.findFirst({
+            where: { id: dto.paymentId, orderId, deletedAt: null },
+            select: { id: true },
+          });
+          if (!payment) {
+            throw new BadRequestException('Payment not found for order');
+          }
+        }
+
+        const status = dto.status ?? RefundStatus.PENDING;
+        const processedAt =
+          status === RefundStatus.COMPLETED ? new Date() : undefined;
+
+        const refund = await tx.refund.create({
+          data: {
+            orderId,
+            paymentId: dto.paymentId,
+            amount: new Prisma.Decimal(dto.amount),
+            method: dto.method,
+            status,
+            processedAt,
+            reference: dto.reference,
+            notes: dto.notes,
+          },
+        });
+
+        if (status === RefundStatus.COMPLETED) {
+          await this.updateOrderStatusInTransaction(
+            tx,
+            order,
+            OrderStatus.REFUNDED,
+            userId,
+            'Refund completed',
+          );
+        }
+
+        return refund;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.createRefund',
+        defaultMessage: 'Failed to create refund',
+      });
+    }
+  }
+
+  async updateRefund(
+    orderId: string,
+    refundId: string,
+    userId: string,
+    dto: UpdateRefundDto,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const refund = await tx.refund.findFirst({
+          where: { id: refundId, orderId },
+        });
+        if (!refund) throw new NotFoundException('Refund not found');
+
+        const data: Prisma.RefundUpdateInput = {
+          ...(dto.paymentId !== undefined ? { paymentId: dto.paymentId } : {}),
+          ...(dto.method ? { method: dto.method } : {}),
+          ...(typeof dto.amount === 'number'
+            ? { amount: new Prisma.Decimal(dto.amount) }
+            : {}),
+          ...(dto.status ? { status: dto.status } : {}),
+          ...(dto.reference !== undefined ? { reference: dto.reference } : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        };
+
+        if (dto.status === RefundStatus.COMPLETED && !refund.processedAt) {
+          data.processedAt = new Date();
+        }
+
+        const updated = await tx.refund.update({
+          where: { id: refund.id },
+          data,
+        });
+
+        if (dto.status === RefundStatus.COMPLETED) {
+          const order = await tx.order.findFirst({
+            where: { id: orderId, deletedAt: null },
+            select: { id: true, status: true },
+          });
+          if (order) {
+            await this.updateOrderStatusInTransaction(
+              tx,
+              order,
+              OrderStatus.REFUNDED,
+              userId,
+              'Refund completed',
+            );
+          }
+        }
+
+        return updated;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.updateRefund',
+        defaultMessage: 'Failed to update refund',
+      });
+    }
+  }
+
+  async listReturns(orderId: string) {
+    try {
+      await this.assertOrderExists(orderId);
+
+      return await this.prisma.returnRequest.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          items: true,
+        },
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.listReturns',
+        defaultMessage: 'Failed to list return requests',
+      });
+    }
+  }
+
+  async createReturnRequest(
+    orderId: string,
+    userId: string,
+    dto: CreateReturnRequestDto,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const order = await tx.order.findFirst({
+          where: { id: orderId, deletedAt: null },
+          include: { items: true },
+        });
+        if (!order) throw new NotFoundException('Order not found');
+
+        const itemsById = new Map(order.items.map((item) => [item.id, item]));
+
+        for (const item of dto.items) {
+          const orderItem = itemsById.get(item.orderItemId);
+          if (!orderItem) {
+            throw new BadRequestException('Order item not found');
+          }
+          if (item.quantity > orderItem.quantity) {
+            throw new BadRequestException(
+              'Return quantity exceeds ordered quantity',
+            );
+          }
+        }
+
+        const returnRequest = await tx.returnRequest.create({
+          data: {
+            orderId,
+            reason: dto.reason,
+            customerNotes: dto.customerNotes,
+            internalNotes: dto.internalNotes,
+            items: {
+              create: dto.items.map((item) => ({
+                orderItemId: item.orderItemId,
+                quantity: item.quantity,
+                restock: item.restock ?? false,
+                restockCondition: item.restockCondition,
+              })),
+            },
+          },
+          include: { items: true },
+        });
+
+        await this.updateOrderStatusInTransaction(
+          tx,
+          { id: order.id, status: order.status },
+          OrderStatus.RETURN_REQUESTED,
+          userId,
+          'Return requested',
+        );
+
+        return returnRequest;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.createReturnRequest',
+        defaultMessage: 'Failed to create return request',
+      });
+    }
+  }
+
+  async updateReturnRequest(
+    orderId: string,
+    returnId: string,
+    userId: string,
+    dto: UpdateReturnRequestDto,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const returnRequest = await tx.returnRequest.findFirst({
+          where: { id: returnId, orderId },
+        });
+        if (!returnRequest) {
+          throw new NotFoundException('Return request not found');
+        }
+
+        const data: Prisma.ReturnRequestUpdateInput = {
+          ...(dto.status ? { status: dto.status } : {}),
+          ...(dto.internalNotes !== undefined
+            ? { internalNotes: dto.internalNotes }
+            : {}),
+        };
+
+        const updated = await tx.returnRequest.update({
+          where: { id: returnRequest.id },
+          data,
+        });
+
+        if (
+          dto.status === ReturnStatus.RECEIVED ||
+          dto.status === ReturnStatus.CLOSED
+        ) {
+          const order = await tx.order.findFirst({
+            where: { id: orderId, deletedAt: null },
+            select: { id: true, status: true },
+          });
+          if (order) {
+            await this.updateOrderStatusInTransaction(
+              tx,
+              order,
+              OrderStatus.RETURNED,
+              userId,
+              'Return completed',
+            );
+          }
+        }
+
+        return updated;
+      });
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'OrdersService.updateReturnRequest',
+        defaultMessage: 'Failed to update return request',
       });
     }
   }
@@ -941,6 +1590,78 @@ export class OrdersService {
         changedByUserId: input.changedByUserId,
         comment: input.comment,
       },
+    });
+  }
+
+  private parseBoolean(value?: string) {
+    if (!value) return false;
+    return value.trim().toLowerCase() === 'true';
+  }
+
+  private async assertOrderExists(orderId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return order;
+  }
+
+  private resolveShipmentDates(
+    status: ShipmentStatus,
+    shippedAt?: Date | null,
+    deliveredAt?: Date | null,
+  ) {
+    const now = new Date();
+    let nextShippedAt = shippedAt ?? null;
+    let nextDeliveredAt = deliveredAt ?? null;
+    const shippedStatuses: ShipmentStatus[] = [
+      ShipmentStatus.DISPATCHED,
+      ShipmentStatus.IN_TRANSIT,
+      ShipmentStatus.DELIVERED,
+      ShipmentStatus.INCIDENT,
+    ];
+
+    if (!nextShippedAt && shippedStatuses.includes(status)) {
+      nextShippedAt = now;
+    }
+
+    if (!nextDeliveredAt && status === ShipmentStatus.DELIVERED) {
+      nextDeliveredAt = now;
+    }
+
+    return {
+      shippedAt: nextShippedAt ?? undefined,
+      deliveredAt: nextDeliveredAt ?? undefined,
+    };
+  }
+
+  private async updateOrderStatusInTransaction(
+    tx: Prisma.TransactionClient,
+    order: { id: string; status: OrderStatus },
+    targetStatus: OrderStatus,
+    userId: string,
+    comment: string,
+  ) {
+    if (order.status === targetStatus) return;
+
+    this.ensureTransitionAllowed(order.status, targetStatus);
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { status: targetStatus },
+    });
+
+    await this.createStatusHistory(tx, {
+      orderId: order.id,
+      fromStatus: order.status,
+      toStatus: targetStatus,
+      changedByUserId: userId,
+      comment,
     });
   }
 

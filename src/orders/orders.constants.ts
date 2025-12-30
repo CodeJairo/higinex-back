@@ -8,13 +8,13 @@ export const PENDING_RESERVATION_STATUSES: OrderStatus[] = [
 export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CREATED]: [OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELED],
   [OrderStatus.PENDING_PAYMENT]: [OrderStatus.PAID, OrderStatus.CANCELED],
-  [OrderStatus.PAID]: [],
-  [OrderStatus.PREPARING]: [],
-  [OrderStatus.SHIPPED]: [],
-  [OrderStatus.DELIVERED]: [],
+  [OrderStatus.PAID]: [OrderStatus.PREPARING],
+  [OrderStatus.PREPARING]: [OrderStatus.SHIPPED],
+  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
+  [OrderStatus.DELIVERED]: [OrderStatus.RETURN_REQUESTED],
   [OrderStatus.CANCELED]: [],
-  [OrderStatus.RETURN_REQUESTED]: [],
-  [OrderStatus.RETURNED]: [],
+  [OrderStatus.RETURN_REQUESTED]: [OrderStatus.RETURNED],
+  [OrderStatus.RETURNED]: [OrderStatus.REFUNDED],
   [OrderStatus.REFUNDED]: [],
 };
 
