@@ -1,6 +1,10 @@
 import * as Joi from 'joi';
 
 export const envConfigSchema = Joi.object({
+
+  NIT: Joi.string().default('902015844'),
+
+
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test', 'staging')
     .required(),
@@ -36,10 +40,15 @@ export const envConfigSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
 
-  RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(60).default(45),
+  RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(240).default(120),
+  RESERVATION_CLEANUP_INTERVAL_MINUTES: Joi.number()
+    .integer()
+    .min(1)
+    .max(60)
+    .default(10),
   ORDER_TAX_PERCENT: Joi.number().integer().min(0).max(100).default(19),
 
-  EMAIL_PROVIDER: Joi.string().valid('SMTP', 'DISABLED').default('DISABLED'),
+  EMAIL_PROVIDER: Joi.string().valid('SMTP', 'DISABLED').default('SMTP'),
   EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {
     is: 'SMTP',
     then: Joi.required(),
@@ -50,6 +59,9 @@ export const envConfigSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
+
+
+
   SMTP_HOST: Joi.string().when('EMAIL_PROVIDER', {
     is: 'SMTP',
     then: Joi.required(),
@@ -70,5 +82,7 @@ export const envConfigSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
-  EMAIL_VERIFY_URL: Joi.string().optional(),
+  EMAIL_VERIFY_URL: Joi.string().required(),
+  FRONTEND_URL: Joi.string().uri().optional(),
 }).unknown(true);
+

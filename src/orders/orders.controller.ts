@@ -29,7 +29,7 @@ import { OrdersService } from './orders.service';
 @Controller('orders')
 @Auth()
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(private readonly ordersService: OrdersService) { }
 
   @Post()
   async createOrder(

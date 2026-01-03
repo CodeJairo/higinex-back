@@ -17,7 +17,7 @@ import {
   timingSafeEqual,
 } from 'crypto';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
-import { EmailService } from 'src/notifications/email/email.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { LoginUserDto } from './dto/login-user.dto';
 import { RegisterUserDto } from './dto/register-user.dto';
@@ -43,7 +43,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
+    private readonly emailService: NotificationsService,
   ) {}
 
   async register(registerUserDto: RegisterUserDto) {

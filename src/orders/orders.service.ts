@@ -21,7 +21,7 @@ import { randomUUID } from 'crypto';
 import { ValidatedUserPayload } from 'src/auth/interfaces/validated-user-payload.interface';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { InventoryService } from 'src/inventory/inventory.service';
-import { EmailService } from 'src/notifications/email/email.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 import { PricingService } from 'src/pricing/pricing.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CancelOrderDto } from './dto/cancel-order.dto';
@@ -64,7 +64,7 @@ export class OrdersService {
     private readonly inventoryService: InventoryService,
     private readonly pricingService: PricingService,
     private readonly prisma: PrismaService,
-    private readonly emailService: EmailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto) {
@@ -229,7 +229,7 @@ export class OrdersService {
     }
   }
 
-  async expireReservations(userId: string) {
+  async expireReservations(userId?: string) {
     try {
       const candidates = await this.findExpiredReservationCandidates();
       const expiredOrderIds: string[] = [];
@@ -999,7 +999,7 @@ export class OrdersService {
   private async expireReservationForOrder(
     tx: Prisma.TransactionClient,
     orderId: string,
-    userId: string,
+    userId?: string,
   ) {
     await this.lockOrderForUpdate(tx, orderId);
 
@@ -1316,7 +1316,7 @@ export class OrdersService {
       createdAt: Date;
       items: Array<{ id: string; variantId: string | null; quantity: number }>;
     },
-    userId: string,
+    userId?: string,
   ) {
     if (!this.isReservationExpired(order)) {
       return null;
@@ -1374,8 +1374,8 @@ export class OrdersService {
 
     try {
       await Promise.all([
-        this.emailService.sendOrderCreatedToCompany(notification),
-        this.emailService.sendOrderCreatedToCustomer(notification),
+        this.notificationsService.sendOrderCreatedToCompany(notification),
+        this.notificationsService.sendOrderCreatedToCustomer(notification),
       ]);
     } catch (error) {
       this.logger.error(

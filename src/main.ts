@@ -3,10 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.disable('x-powered-by');
+  // app.use(helmet());
   app.setGlobalPrefix('api/v1');
 
   const corsOrigins = (process.env.CORS_ORIGINS ?? '')

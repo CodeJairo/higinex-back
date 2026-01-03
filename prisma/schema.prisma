@@ -25,7 +25,6 @@ enum ProductStatus {
 }
 
 enum OrderStatus {
-  CREATED
   PENDING_PAYMENT
   PAID
   PREPARING
@@ -293,10 +292,11 @@ model InventoryMovement {
   @@index([orderId])
 }
 
+// TODO: Validar si es realmente necesario agregar un campo de currency a la orden
 model Order {
   id          String      @id @default(uuid())
   orderNumber String      @unique
-  status      OrderStatus @default(CREATED)
+  status      OrderStatus @default(PENDING_PAYMENT)
   currency    String      @default("COP")
 
   customerId String?
