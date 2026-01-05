@@ -24,6 +24,7 @@ import { RegisterUserDto } from './dto/register-user.dto';
 import { RequestEmailDto } from './dto/request-email.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailTokenDto } from './dto/verify-email-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import {
   RefreshJwtPayload,
   UserJwtPayload,
@@ -44,7 +45,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly emailService: NotificationsService,
-  ) {}
+  ) { }
 
   async register(registerUserDto: RegisterUserDto) {
     try {
@@ -246,6 +247,31 @@ export class AuthService {
     });
 
     return { ok: true };
+  }
+
+  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
+    const { currentPassword, newPassword } = changePasswordDto;
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || user.deletedAt || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    const saltRounds = this.configService.get<number>('SALT_ROUNDS')!;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: newPasswordHash },
+    });
+
+    return { message: 'Password updated successfully' };
   }
 
   private async issueTokens(user: UserJwtPayload) {

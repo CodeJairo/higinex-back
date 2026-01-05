@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Patch,
   Post,
   Query,
   Req,
@@ -18,6 +19,7 @@ import { RegisterUserDto } from './dto/register-user.dto';
 import { RequestEmailDto } from './dto/request-email.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailTokenDto } from './dto/verify-email-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import type { ValidatedUserPayload } from './interfaces/validated-user-payload.interface';
 import { getCookieValue } from 'src/common/helpers/cookie.helper';
 
@@ -26,7 +28,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   @Post('register')
   @Auth('ADMIN')
@@ -77,6 +79,16 @@ export class AuthController {
   @HttpCode(200)
   resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
+  }
+
+  @Patch('password/change')
+  @Auth()
+  @HttpCode(200)
+  changePassword(
+    @CurrentUser() user: ValidatedUserPayload,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.id, changePasswordDto);
   }
 
   @Post('refresh')
