@@ -2,12 +2,13 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from './app.module';
+import * as basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
+import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  // app.use(helmet());
+  app.use(helmet());
   app.setGlobalPrefix('api/v1');
 
   const corsOrigins = (process.env.CORS_ORIGINS ?? '')
@@ -33,13 +34,27 @@ async function bootstrap() {
     }),
   );
 
-  const config = new DocumentBuilder()
-    .setTitle('Higinex API')
-    .setDescription('Higinex API documentation')
-    .setVersion('1.0')
-    .build();
-  const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, documentFactory);
+  if (process.env.NODE_ENV !== 'production') {
+    app.use(
+      ['/docs', '/docs-json'],
+      basicAuth.default({
+        challenge: true,
+        users: {
+          [process.env.SWAGGER_USER ?? 'admin']:
+            process.env.SWAGGER_PASSWORD ?? 'admin',
+        },
+      }),
+    );
+
+    const config = new DocumentBuilder()
+      .setTitle('Higinex API')
+      .setDescription('Higinex API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const documentFactory = () => SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, documentFactory);
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }

@@ -84,5 +84,8 @@ export const envConfigSchema = Joi.object({
   }),
   EMAIL_VERIFY_URL: Joi.string().required(),
   FRONTEND_URL: Joi.string().uri().optional(),
+
+  SWAGGER_USER: Joi.string().default('admin'),
+  SWAGGER_PASSWORD: Joi.string().default('admin'),
 }).unknown(true);
 

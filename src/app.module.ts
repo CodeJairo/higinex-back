@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { envConfigSchema } from './config/env.schema';
@@ -24,6 +26,12 @@ import { FinanceModule } from './finance/finance.module';
         abortEarly: true,
       },
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
     PrismaModule,
     AuthModule,
     SeedModule,
@@ -36,6 +44,13 @@ import { FinanceModule } from './finance/finance.module';
     UsersModule,
     AnalyticsModule,
     FinanceModule,
+    FinanceModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule { }
