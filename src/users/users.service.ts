@@ -3,11 +3,12 @@ import { Prisma, Role } from '@prisma/client';
 import { handlePrismaError } from 'src/common/helpers/prisma-error.helper';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { GetUsersQueryDto } from './dto/get-users-query.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async listUsers({
     limit = 10,
@@ -29,41 +30,41 @@ export class UsersService {
         ...(isActiveFilter !== undefined ? { isActive: isActiveFilter } : {}),
         ...(hasCustomerFilter !== undefined
           ? {
-              customer: hasCustomerFilter
-                ? { isNot: null }
-                : { is: null },
-            }
+            customer: hasCustomerFilter
+              ? { isNot: null }
+              : { is: null },
+          }
           : {}),
         ...(query
           ? {
-              OR: [
-                { email: { contains: query, mode: 'insensitive' } },
-                {
-                  customer: {
-                    is: {
-                      name: { contains: query, mode: 'insensitive' },
+            OR: [
+              { email: { contains: query, mode: 'insensitive' } },
+              {
+                customer: {
+                  is: {
+                    name: { contains: query, mode: 'insensitive' },
+                  },
+                },
+              },
+              {
+                customer: {
+                  is: {
+                    phone: { contains: query, mode: 'insensitive' },
+                  },
+                },
+              },
+              {
+                customer: {
+                  is: {
+                    documentNumber: {
+                      contains: query,
+                      mode: 'insensitive',
                     },
                   },
                 },
-                {
-                  customer: {
-                    is: {
-                      phone: { contains: query, mode: 'insensitive' },
-                    },
-                  },
-                },
-                {
-                  customer: {
-                    is: {
-                      documentNumber: {
-                        contains: query,
-                        mode: 'insensitive',
-                      },
-                    },
-                  },
-                },
-              ],
-            }
+              },
+            ],
+          }
           : {}),
       };
 
@@ -138,6 +139,46 @@ export class UsersService {
         logger: this.logger,
         context: 'UsersService.getUser',
         defaultMessage: 'Failed to get user',
+      });
+    }
+  }
+
+  async updateUser(userId: string, updateUserDto: UpdateUserDto) {
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+      });
+
+      if (!user) throw new NotFoundException('User not found');
+
+      await this.prisma.$transaction(async (tx) => {
+        if (
+          updateUserDto.role !== undefined ||
+          updateUserDto.isActive !== undefined
+        ) {
+          await tx.user.update({
+            where: { id: userId },
+            data: {
+              role: updateUserDto.role,
+              isActive: updateUserDto.isActive,
+            },
+          });
+        }
+
+        if (updateUserDto.customer) {
+          await tx.customer.updateMany({
+            where: { userId },
+            data: updateUserDto.customer,
+          });
+        }
+      });
+
+      return { message: 'User updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'UsersService.updateUser',
+        defaultMessage: 'Failed to update user',
       });
     }
   }
