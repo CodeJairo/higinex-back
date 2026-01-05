@@ -140,10 +140,42 @@ export class AuthController {
       this.config.get<boolean>('AUTH_COOKIE_SECURE', false) ||
       this.config.get<string>('NODE_ENV') === 'production';
 
+    const expiresIn = this.config.get<string>('JWT_REFRESH_EXPIRES_IN')!;
+    const maxAge = this.parseDuration(expiresIn);
+
     return {
       httpOnly: true,
       sameSite,
       secure,
+      maxAge,
     } as const;
+  }
+
+  private parseDuration(duration: string): number {
+    if (!isNaN(Number(duration))) {
+      return Number(duration);
+    }
+
+    const match = duration.match(/^(\d+)([dhms])$/);
+    if (!match) {
+      // Default to 7 days if format is invalid
+      return 7 * 24 * 60 * 60 * 1000;
+    }
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 'd':
+        return value * 24 * 60 * 60 * 1000;
+      case 'h':
+        return value * 60 * 60 * 1000;
+      case 'm':
+        return value * 60 * 1000;
+      case 's':
+        return value * 1000;
+      default:
+        return 7 * 24 * 60 * 60 * 1000;
+    }
   }
 }
