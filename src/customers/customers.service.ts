@@ -10,6 +10,7 @@ import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GetCustomerAddressesQueryDto } from './dto/get-customer-addresses-query.dto';
 import { GetCustomersQueryDto } from './dto/get-customers-query.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 const customerAddressSelect = {
   id: true,
@@ -29,7 +30,7 @@ const customerAddressSelect = {
 @Injectable()
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async listCustomers({ limit = 10, offset = 0, q }: GetCustomersQueryDto) {
     try {
@@ -39,13 +40,13 @@ export class CustomersService {
           deletedAt: null,
           ...(query
             ? {
-                OR: [
-                  { name: { contains: query, mode: 'insensitive' } },
-                  { email: { contains: query, mode: 'insensitive' } },
-                  { phone: { contains: query, mode: 'insensitive' } },
-                  { documentNumber: { contains: query, mode: 'insensitive' } },
-                ],
-              }
+              OR: [
+                { name: { contains: query, mode: 'insensitive' } },
+                { email: { contains: query, mode: 'insensitive' } },
+                { phone: { contains: query, mode: 'insensitive' } },
+                { documentNumber: { contains: query, mode: 'insensitive' } },
+              ],
+            }
             : {}),
         },
         take: limit,
@@ -68,6 +69,28 @@ export class CustomersService {
         logger: this.logger,
         context: 'CustomersService.listCustomers',
         defaultMessage: 'Failed to list customers',
+      });
+    }
+  }
+
+  async updateCustomerProfile(userId: string, dto: UpdateCustomerProfileDto) {
+    try {
+      const customer = await this.getCustomerForUser(userId);
+
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          email: dto.email,
+          phone: dto.phone,
+        },
+      });
+
+      return { message: 'Profile updated successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'CustomersService.updateCustomerProfile',
+        defaultMessage: 'Failed to update customer profile',
       });
     }
   }

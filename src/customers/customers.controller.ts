@@ -16,11 +16,12 @@ import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GetCustomerAddressesQueryDto } from './dto/get-customer-addresses-query.dto';
 import { GetCustomersQueryDto } from './dto/get-customers-query.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 @Controller('customers')
 @Auth()
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(private readonly customersService: CustomersService) { }
 
   @Get('me/addresses')
   async listAddresses(
@@ -71,6 +72,14 @@ export class CustomersController {
       userId,
       addressId,
     );
+  }
+
+  @Patch('me')
+  async updateProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateCustomerProfileDto,
+  ) {
+    return await this.customersService.updateCustomerProfile(userId, dto);
   }
 
   @Get()
