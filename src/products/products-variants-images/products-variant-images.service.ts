@@ -12,7 +12,7 @@ import { UpdateProductVariantImageDto } from './dto/update-product-variant-image
 @Injectable()
 export class ProductVariantImagesService {
   private readonly logger = new Logger(ProductVariantImagesService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async createVariantImage(
     variantId: string,
@@ -32,19 +32,22 @@ export class ProductVariantImagesService {
       });
       if (!variant) throw new NotFoundException('Variant not found');
 
+      const count = await this.prisma.productImage.count({
+        where: { variantId },
+      });
+
       return await this.prisma.productImage.create({
         data: {
           variantId,
           data: bytes,
           mimeType: file.mimetype,
-          filename: file.originalname,
           altText: dto.altText,
-          sortOrder: dto.sortOrder ?? 0,
+          isDefault: count === 0,
         },
         select: {
           id: true,
           altText: true,
-          sortOrder: true,
+          isDefault: true,
           createdAt: true,
           mimeType: true,
           filename: true,
@@ -70,11 +73,11 @@ export class ProductVariantImagesService {
 
       return await this.prisma.productImage.findMany({
         where: { variantId },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
         select: {
           id: true,
           altText: true,
-          sortOrder: true,
+          isDefault: true,
           createdAt: true,
           mimeType: true,
           filename: true,
@@ -116,9 +119,6 @@ export class ProductVariantImagesService {
         where: { id: imageId, variantId },
         data: {
           ...(typeof dto.altText === 'string' ? { altText: dto.altText } : {}),
-          ...(typeof dto.sortOrder === 'number'
-            ? { sortOrder: dto.sortOrder }
-            : {}),
         },
       });
 
@@ -148,6 +148,37 @@ export class ProductVariantImagesService {
         logger: this.logger,
         context: 'ProductVariantImagesService.deleteVariantImage',
         defaultMessage: 'Failed to delete variant image',
+      });
+    }
+  }
+
+  async setVariantImageAsDefault(variantId: string, imageId: string) {
+    try {
+      // Verify image exists and belongs to variant
+      const image = await this.prisma.productImage.findFirst({
+        where: { id: imageId, variantId },
+      });
+
+      if (!image) throw new NotFoundException('Image not found');
+
+      // Transaction to unset current default and set new default
+      await this.prisma.$transaction([
+        this.prisma.productImage.updateMany({
+          where: { variantId, isDefault: true },
+          data: { isDefault: false },
+        }),
+        this.prisma.productImage.update({
+          where: { id: imageId },
+          data: { isDefault: true },
+        }),
+      ]);
+
+      return { message: 'Variant image set as default successfully' };
+    } catch (error) {
+      handlePrismaError(error, {
+        logger: this.logger,
+        context: 'ProductVariantImagesService.setVariantImageAsDefault',
+        defaultMessage: 'Failed to set variant image as default',
       });
     }
   }

@@ -17,7 +17,7 @@ export class ProductsVariantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricingService: PricingService,
-  ) {}
+  ) { }
 
   async createProductVariant(
     productId: string,
@@ -99,11 +99,11 @@ export class ProductsVariantsService {
           createdAt: true,
           updatedAt: true,
           images: {
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
             select: {
               id: true,
               altText: true,
-              sortOrder: true,
+              isDefault: true,
               createdAt: true,
               mimeType: true,
               filename: true,
@@ -156,11 +156,11 @@ export class ProductsVariantsService {
             ...(productStatus === ProductStatusParam.ALL
               ? {}
               : {
-                  status:
-                    productStatus === ProductStatusParam.PUBLISHED
-                      ? ProductStatus.PUBLISHED
-                      : ProductStatus.ARCHIVED,
-                }),
+                status:
+                  productStatus === ProductStatusParam.PUBLISHED
+                    ? ProductStatus.PUBLISHED
+                    : ProductStatus.ARCHIVED,
+              }),
           },
         },
         take: limit,
@@ -185,11 +185,11 @@ export class ProductsVariantsService {
             },
           },
           images: {
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
             select: {
               id: true,
               altText: true,
-              sortOrder: true,
+              isDefault: true,
               createdAt: true,
               mimeType: true,
               filename: true,

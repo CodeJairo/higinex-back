@@ -8,8 +8,5 @@ export class CreateProductVariantImageDto {
   @Trim()
   altText?: string;
 
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
+
 }

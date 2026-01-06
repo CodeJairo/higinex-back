@@ -23,7 +23,7 @@ import { ProductVariantImagesService } from './products-variant-images.service';
 export class ProductVariantImagesController {
   constructor(
     private readonly productVariantImagesService: ProductVariantImagesService,
-  ) {}
+  ) { }
 
   @Post()
   @Auth('ADMIN')
@@ -90,6 +90,17 @@ export class ProductVariantImagesController {
     @Param('imageId', ParseUUIDPipe) imageId: string,
   ) {
     return this.productVariantImagesService.deleteVariantImage(
+      variantId,
+      imageId,
+    );
+  }
+  @Patch(':imageId/default')
+  @Auth('ADMIN')
+  setDefault(
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+  ) {
+    return this.productVariantImagesService.setVariantImageAsDefault(
       variantId,
       imageId,
     );

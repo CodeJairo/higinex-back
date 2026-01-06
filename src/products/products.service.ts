@@ -12,7 +12,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async createProduct(createProductDto: CreateProductDto) {
     try {
@@ -41,11 +41,11 @@ export class ProductsService {
           ...(status === ProductStatusParam.ALL
             ? {}
             : {
-                status:
-                  status === ProductStatusParam.PUBLISHED
-                    ? ProductStatus.PUBLISHED
-                    : ProductStatus.ARCHIVED,
-              }),
+              status:
+                status === ProductStatusParam.PUBLISHED
+                  ? ProductStatus.PUBLISHED
+                  : ProductStatus.ARCHIVED,
+            }),
         },
         take: limit,
         skip: offset,
@@ -134,11 +134,11 @@ export class ProductsService {
           createdAt: true,
           updatedAt: true,
           images: {
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
             select: {
               id: true,
               altText: true,
-              sortOrder: true,
+              isDefault: true,
               createdAt: true,
               mimeType: true,
               filename: true,

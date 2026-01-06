@@ -214,7 +214,7 @@ model ProductImage {
   mimeType  String
   filename  String?
   altText   String?
-  sortOrder Int             @default(0)
+  isDefault Boolean         @default(false)
   createdAt DateTime        @default(now())
   productId String?
   variantId String?
