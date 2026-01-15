@@ -28,7 +28,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   @Post('register')
   @Auth('ADMIN')
@@ -148,6 +148,7 @@ export class AuthController {
       sameSite,
       secure,
       maxAge,
+      path: '/',
     } as const;
   }
 
