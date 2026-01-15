@@ -6,6 +6,19 @@ import { join } from 'path';
 import { InvoiceService } from './invoice/invoice.service';
 import { NotificationsService } from './notifications.service';
 
+// Helper to strip quotes if present
+function cleanEnv(val: string | undefined): string | undefined {
+  if (!val) return undefined;
+  const trimmed = val.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
 @Module({
   imports: [
     MailerModule.forRootAsync({
@@ -17,12 +30,14 @@ import { NotificationsService } from './notifications.service';
           port: configService.get<number>('SMTP_PORT'),
           secure: Number(configService.get('SMTP_PORT')) === 465,
           auth: {
-            user:
+            user: cleanEnv(
               configService.get<string>('SMTP_User') ||
-              configService.get<string>('SMTP_USER'),
-            pass:
+                configService.get<string>('SMTP_USER'),
+            ),
+            pass: cleanEnv(
               configService.get<string>('SMTP_Pass') ||
-              configService.get<string>('SMTP_PASS'),
+                configService.get<string>('SMTP_PASS'),
+            ),
           },
         },
         defaults: {
