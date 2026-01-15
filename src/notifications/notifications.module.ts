@@ -29,7 +29,7 @@ import { NotificationsService } from './notifications.service';
           from: configService.get('EMAIL_FROM'),
         },
         template: {
-          dir: join(__dirname, 'templates'), // Fixed path
+          dir: join(process.cwd(), 'dist', 'notifications', 'templates'),
           adapter: new HandlebarsAdapter(undefined, {
             inlineCssEnabled: false,
           }),

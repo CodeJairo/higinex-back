@@ -45,7 +45,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly emailService: NotificationsService,
-  ) { }
+  ) {}
 
   async register(registerUserDto: RegisterUserDto) {
     try {
@@ -96,8 +96,12 @@ export class AuthService {
       if (!isPasswordValid)
         throw new UnauthorizedException('Invalid credentials - password');
 
-      if (!user.emailVerifiedAt)
-        throw new ForbiddenException('Email not verified');
+      if (!user.emailVerifiedAt) {
+        await this.sendEmailVerificationLink(user);
+        throw new ForbiddenException(
+          'Email not verified. A new verification link has been sent if allowed by cooldown.',
+        );
+      }
 
       const { accessToken, refreshToken } = await this.issueTokens({
         id: user.id,
@@ -258,7 +262,10 @@ export class AuthService {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.password,
+    );
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid current password');
     }

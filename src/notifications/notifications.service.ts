@@ -28,6 +28,15 @@ export class NotificationsService {
   }
 
   async sendOrderCreatedToCompany(input: OrderNotificationInput) {
+    this.handleSendOrderCreatedToCompany(input).catch((err) =>
+      this.logger.error(
+        `Failed to send order created email to company: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  private async handleSendOrderCreatedToCompany(input: OrderNotificationInput) {
     if (!this.companyOrdersEmail) {
       this.logger.warn('COMPANY_ORDERS_EMAIL is not configured');
       return;
@@ -53,6 +62,17 @@ export class NotificationsService {
   }
 
   async sendOrderCreatedToCustomer(input: OrderNotificationInput) {
+    this.handleSendOrderCreatedToCustomer(input).catch((err) =>
+      this.logger.error(
+        `Failed to send order created email to customer: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  private async handleSendOrderCreatedToCustomer(
+    input: OrderNotificationInput,
+  ) {
     const { context, subject } = this.buildOrderContext(
       input,
       `Pedido recibido ${input.orderNumber}`,
@@ -88,6 +108,17 @@ export class NotificationsService {
   }
 
   async sendOrderStatusChangedToCustomer(input: OrderNotificationInput) {
+    this.handleSendOrderStatusChangedToCustomer(input).catch((err) =>
+      this.logger.error(
+        `Failed to send order status change email: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  private async handleSendOrderStatusChangedToCustomer(
+    input: OrderNotificationInput,
+  ) {
     const { context, subject } = this.buildOrderContext(
       input,
       `Actualización de pedido ${input.orderNumber}`,
@@ -102,6 +133,17 @@ export class NotificationsService {
   }
 
   async sendEmailVerificationLink(input: EmailVerificationLinkInput) {
+    this.handleSendEmailVerificationLink(input).catch((err) =>
+      this.logger.error(
+        `Failed to send email verification link: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  private async handleSendEmailVerificationLink(
+    input: EmailVerificationLinkInput,
+  ) {
     await this.sendMail({
       to: input.email,
       subject: 'Verifica tu correo',
@@ -114,6 +156,15 @@ export class NotificationsService {
   }
 
   async sendPasswordResetCode(input: AuthCodeEmailInput) {
+    this.handleSendPasswordResetCode(input).catch((err) =>
+      this.logger.error(
+        `Failed to send password reset code: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  private async handleSendPasswordResetCode(input: AuthCodeEmailInput) {
     await this.sendMail({
       to: input.email,
       subject: 'Código para restablecer tu contraseña',
@@ -156,7 +207,13 @@ export class NotificationsService {
 
   private getLogoAttachment(): any | null {
     try {
-      const logoPath = path.join(__dirname, 'assets', 'logo.png');
+      const logoPath = path.join(
+        process.cwd(),
+        'dist',
+        'notifications',
+        'assets',
+        'logo.png',
+      );
       if (fs.existsSync(logoPath)) {
         return {
           filename: 'logo.png',
@@ -164,6 +221,7 @@ export class NotificationsService {
           cid: 'logo',
         };
       }
+      this.logger.warn(`Logo not found at: ${logoPath}`);
       return null;
     } catch (error) {
       this.logger.error('Failed to prepare logo attachment', error);
