@@ -13,14 +13,16 @@ import { NotificationsService } from './notifications.service';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         transport: {
-          host: configService.get('SMTP_HOST'),
-          port: configService.get('SMTP_PORT'),
-          secure: configService.get('SMTP_PORT') === 465,
+          host: configService.get<string>('SMTP_HOST'),
+          port: configService.get<number>('SMTP_PORT'),
+          secure: Number(configService.get('SMTP_PORT')) === 465,
           auth: {
             user:
-              configService.get('SMTP_User') || configService.get('SMTP_USER'),
+              configService.get<string>('SMTP_User') ||
+              configService.get<string>('SMTP_USER'),
             pass:
-              configService.get('SMTP_Pass') || configService.get('SMTP_PASS'),
+              configService.get<string>('SMTP_Pass') ||
+              configService.get<string>('SMTP_PASS'),
           },
         },
         defaults: {
@@ -41,4 +43,4 @@ import { NotificationsService } from './notifications.service';
   providers: [NotificationsService, InvoiceService],
   exports: [NotificationsService, InvoiceService],
 })
-export class NotificationsModule { }
+export class NotificationsModule {}
