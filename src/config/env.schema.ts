@@ -1,9 +1,7 @@
 import * as Joi from 'joi';
 
 export const envConfigSchema = Joi.object({
-
   NIT: Joi.string().default('902015844'),
-
 
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test', 'staging')
@@ -60,18 +58,8 @@ export const envConfigSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
 
-
-
-  SMTP_HOST: Joi.string().when('EMAIL_PROVIDER', {
-    is: 'SMTP',
-    then: Joi.required(),
-    otherwise: Joi.optional(),
-  }),
-  SMTP_PORT: Joi.number().port().when('EMAIL_PROVIDER', {
-    is: 'SMTP',
-    then: Joi.required(),
-    otherwise: Joi.optional(),
-  }),
+  SMTP_HOST: Joi.string().optional(),
+  SMTP_PORT: Joi.number().port().optional(),
   SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
     is: 'SMTP',
     then: Joi.required(),
@@ -88,4 +76,3 @@ export const envConfigSchema = Joi.object({
   SWAGGER_USER: Joi.string().default('admin'),
   SWAGGER_PASSWORD: Joi.string().default('admin'),
 }).unknown(true);
-

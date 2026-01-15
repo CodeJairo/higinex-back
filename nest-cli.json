@@ -9,7 +9,8 @@
       "**/*.png",
       "**/*.jpg",
       "**/*.jpeg",
-      "**/assets/*"
+      "**/assets/*",
+      "src/notifications/assets/*"
     ]
   },
   "generateOptions": {
