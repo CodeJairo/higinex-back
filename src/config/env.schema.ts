@@ -58,8 +58,8 @@ export const envConfigSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
 
-  SMTP_HOST: Joi.string().optional(),
-  SMTP_PORT: Joi.number().port().optional(),
+  SMTP_HOST: Joi.string().default('smtp.resend.com'),
+  SMTP_PORT: Joi.number().port().default(587),
   SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
     is: 'SMTP',
     then: Joi.required(),

@@ -23,42 +23,37 @@ function cleanEnv(val: string | undefined): string | undefined {
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        transport: {
-          // 1. Usar el servicio predefinido de Gmail es 100% más fiable en prod
-          service: 'gmail',
-          auth: {
-            user: cleanEnv(configService.get<string>('SMTP_USER')),
-            pass: cleanEnv(configService.get<string>('SMTP_PASS')),
+      useFactory: (configService: ConfigService) => {
+        const isDev = configService.get('NODE_ENV') === 'development';
+        return {
+          transport: {
+            host: configService.get('SMTP_HOST', 'smtp.resend.com'),
+            port: configService.get('SMTP_PORT', 587),
+            secure: false, // true for 465, false for other ports
+            auth: {
+              user: cleanEnv(configService.get<string>('SMTP_USER')),
+              pass: cleanEnv(configService.get<string>('SMTP_PASS')),
+            },
+            tls: {
+              ciphers: 'SSLv3',
+            },
+            logger: isDev,
+            debug: isDev,
           },
-          // 2. Mantén tus configuraciones de optimización
-          pool: true,
-          maxConnections: 1,
-          rateLimit: 2,
-
-          // 3. CONFIGURACIÓN CRÍTICA PARA RENDER
-          tls: {
-            // Esto evita que la conexión falle si hay un salto de red
-            // o un proxy intermedio en Render que Gmail no reconoce.
-            rejectUnauthorized: false,
-            // Fuerza a usar IPv4 (Gmail a veces ignora peticiones IPv6 de datacenters)
-            servername: 'smtp.gmail.com',
+          defaults: {
+            from: configService.get('EMAIL_FROM'),
           },
-          connectionTimeout: 20000, // Más tiempo para el handshake inicial
-        },
-        defaults: {
-          from: configService.get('EMAIL_FROM'),
-        },
-        template: {
-          dir: join(process.cwd(), 'dist', 'notifications', 'templates'),
-          adapter: new HandlebarsAdapter(undefined, {
-            inlineCssEnabled: false,
-          }),
-        },
-        options: {
-          strict: true,
-        },
-      }),
+          template: {
+            dir: join(process.cwd(), 'dist', 'notifications', 'templates'),
+            adapter: new HandlebarsAdapter(undefined, {
+              inlineCssEnabled: false,
+            }),
+          },
+          options: {
+            strict: true,
+          },
+        };
+      },
     }),
   ],
   providers: [NotificationsService, InvoiceService],
