@@ -28,7 +28,7 @@ function cleanEnv(val: string | undefined): string | undefined {
         return {
           transport: {
             host: configService.get('SMTP_HOST', 'smtp.resend.com'),
-            port: configService.get('SMTP_PORT', 587),
+            port: parseInt(configService.get('SMTP_PORT') || '587', 10),
             secure: false, // true for 465, false for other ports
             auth: {
               user: cleanEnv(configService.get<string>('SMTP_USER')),
