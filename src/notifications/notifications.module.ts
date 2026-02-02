@@ -25,6 +25,16 @@ function cleanEnv(val: string | undefined): string | undefined {
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const isDev = configService.get('NODE_ENV') === 'development';
+
+        // 🔍 DEBUG - Imprime la configuración SMTP
+        console.log('📧 EMAIL CONFIG:', {
+          host: configService.get('SMTP_HOST') || 'smtp.resend.com',
+          port: configService.get('SMTP_PORT') || '587',
+          user: configService.get('SMTP_USER'),
+          hasPass: !!configService.get('SMTP_PASS'),
+          from: configService.get('EMAIL_FROM'),
+        });
+
         return {
           transport: {
             host: configService.get('SMTP_HOST', 'smtp.resend.com'),
