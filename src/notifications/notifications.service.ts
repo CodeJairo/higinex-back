@@ -1,8 +1,9 @@
-import { MailerService } from '@nestjs-modules/mailer';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import fs from 'fs';
-import path from 'path';
+import sgMail from '@sendgrid/mail';
+import * as fs from 'fs';
+import * as Handlebars from 'handlebars';
+import * as path from 'path';
 import { ORDER_STATUS_LABELS } from './constants/email.constants';
 import {
   AuthCodeEmailInput,
@@ -13,19 +14,47 @@ import {
 } from './interfaces/email.types';
 import { InvoiceService } from './invoice/invoice.service';
 
+interface SendGridAttachment {
+  content: string;
+  filename: string;
+  type: string;
+  disposition: 'attachment' | 'inline';
+  content_id?: string;
+}
+
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleInit {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly companyOrdersEmail: string | null;
+  private readonly emailFrom: string;
+  private readonly templatesDir: string;
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly mailerService: MailerService,
     private readonly invoiceService: InvoiceService,
   ) {
     this.companyOrdersEmail =
       this.configService.get<string>('COMPANY_ORDERS_EMAIL') ?? null;
+    this.emailFrom = this.configService.get<string>('EMAIL_FROM') ?? '';
+    this.templatesDir = path.join(
+      process.cwd(),
+      'dist',
+      'notifications',
+      'templates',
+    );
   }
+
+  onModuleInit() {
+    const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
+    if (!apiKey) {
+      this.logger.warn('SENDGRID_API_KEY is not configured. Emails will fail.');
+      return;
+    }
+    sgMail.setApiKey(apiKey);
+    this.logger.log('SendGrid API initialized');
+  }
+
+  // ─── PUBLIC METHODS ────────────────────────────────────────────────
 
   async sendOrderCreatedToCompany(input: OrderNotificationInput) {
     this.handleSendOrderCreatedToCompany(input).catch((err) =>
@@ -35,6 +64,44 @@ export class NotificationsService {
       ),
     );
   }
+
+  async sendOrderCreatedToCustomer(input: OrderNotificationInput) {
+    this.handleSendOrderCreatedToCustomer(input).catch((err) =>
+      this.logger.error(
+        `Failed to send order created email to customer: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  async sendOrderStatusChangedToCustomer(input: OrderNotificationInput) {
+    this.handleSendOrderStatusChangedToCustomer(input).catch((err) =>
+      this.logger.error(
+        `Failed to send order status change email: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  async sendEmailVerificationLink(input: EmailVerificationLinkInput) {
+    this.handleSendEmailVerificationLink(input).catch((err) =>
+      this.logger.error(
+        `Failed to send email verification link: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  async sendPasswordResetCode(input: AuthCodeEmailInput) {
+    this.handleSendPasswordResetCode(input).catch((err) =>
+      this.logger.error(
+        `Failed to send password reset code: ${err.message}`,
+        err.stack,
+      ),
+    );
+  }
+
+  // ─── PRIVATE HANDLERS ──────────────────────────────────────────────
 
   private async handleSendOrderCreatedToCompany(input: OrderNotificationInput) {
     if (!this.companyOrdersEmail) {
@@ -47,7 +114,6 @@ export class NotificationsService {
       `Nuevo pedido ${input.orderNumber}`,
     );
 
-    // Ensure customer is fully available in context for the template
     const companyContext = {
       ...context,
       customer: input.customer,
@@ -56,18 +122,9 @@ export class NotificationsService {
     await this.sendMail({
       to: this.companyOrdersEmail,
       subject,
-      template: './order-created-company',
+      template: 'order-created-company',
       context: companyContext,
     });
-  }
-
-  async sendOrderCreatedToCustomer(input: OrderNotificationInput) {
-    this.handleSendOrderCreatedToCustomer(input).catch((err) =>
-      this.logger.error(
-        `Failed to send order created email to customer: ${err.message}`,
-        err.stack,
-      ),
-    );
   }
 
   private async handleSendOrderCreatedToCustomer(
@@ -78,41 +135,30 @@ export class NotificationsService {
       `Pedido recibido ${input.orderNumber}`,
     );
 
-    let attachments: any[] = [];
+    const attachments: SendGridAttachment[] = [];
     try {
       const invoiceBuffer = await this.invoiceService.generateInvoice(context);
-      attachments = [
-        {
-          filename: `Factura-${input.orderNumber}.pdf`,
-          content: invoiceBuffer,
-          contentType: 'application/pdf',
-        },
-      ];
+      attachments.push({
+        content: invoiceBuffer.toString('base64'),
+        filename: `Factura-${input.orderNumber}.pdf`,
+        type: 'application/pdf',
+        disposition: 'attachment',
+      });
     } catch (error) {
       this.logger.error(
         `Failed to generate invoice for order ${input.orderNumber}`,
         error,
       );
-      // Continue without invoice if generation fails
     }
 
     await this.sendMail(
       {
         to: input.customer.email,
         subject,
-        template: './order-created-customer',
+        template: 'order-created-customer',
         context,
       },
       attachments,
-    );
-  }
-
-  async sendOrderStatusChangedToCustomer(input: OrderNotificationInput) {
-    this.handleSendOrderStatusChangedToCustomer(input).catch((err) =>
-      this.logger.error(
-        `Failed to send order status change email: ${err.message}`,
-        err.stack,
-      ),
     );
   }
 
@@ -127,18 +173,9 @@ export class NotificationsService {
     await this.sendMail({
       to: input.customer.email,
       subject,
-      template: './order-status-changed',
+      template: 'order-status-changed',
       context,
     });
-  }
-
-  async sendEmailVerificationLink(input: EmailVerificationLinkInput) {
-    this.handleSendEmailVerificationLink(input).catch((err) =>
-      this.logger.error(
-        `Failed to send email verification link: ${err.message}`,
-        err.stack,
-      ),
-    );
   }
 
   private async handleSendEmailVerificationLink(
@@ -147,7 +184,7 @@ export class NotificationsService {
     await this.sendMail({
       to: input.email,
       subject: 'Verifica tu correo',
-      template: './email-verification',
+      template: 'email-verification',
       context: {
         link: input.link,
         expiresInMinutes: input.expiresInMinutes,
@@ -155,20 +192,11 @@ export class NotificationsService {
     });
   }
 
-  async sendPasswordResetCode(input: AuthCodeEmailInput) {
-    this.handleSendPasswordResetCode(input).catch((err) =>
-      this.logger.error(
-        `Failed to send password reset code: ${err.message}`,
-        err.stack,
-      ),
-    );
-  }
-
   private async handleSendPasswordResetCode(input: AuthCodeEmailInput) {
     await this.sendMail({
       to: input.email,
       subject: 'Código para restablecer tu contraseña',
-      template: './password-reset',
+      template: 'password-reset',
       context: {
         code: input.code,
         expiresInMinutes: input.expiresInMinutes,
@@ -176,7 +204,12 @@ export class NotificationsService {
     });
   }
 
-  private async sendMail(payload: EmailPayload, attachments: any[] = []) {
+  // ─── CORE EMAIL LOGIC ──────────────────────────────────────────────
+
+  private async sendMail(
+    payload: EmailPayload,
+    attachments: SendGridAttachment[] = [],
+  ) {
     try {
       const logoAttachment = this.getLogoAttachment();
       const allAttachments = logoAttachment
@@ -189,23 +222,50 @@ export class NotificationsService {
         year: new Date().getFullYear(),
       };
 
-      await this.mailerService.sendMail({
-        to: payload.to,
-        subject: payload.subject,
-        template: payload.template,
-        context: contextWithLogo,
-        attachments: allAttachments,
-      });
-      this.logger.log(`Email sent to ${payload.to} [${payload.subject}]`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to send email to ${payload.to}`,
-        error as Error,
+      const htmlContent = await this.compileTemplate(
+        payload.template,
+        contextWithLogo,
       );
+
+      const msg: sgMail.MailDataRequired = {
+        to: payload.to,
+        from: this.emailFrom,
+        subject: payload.subject,
+        html: htmlContent,
+        attachments: allAttachments.length > 0 ? allAttachments : undefined,
+      };
+
+      await sgMail.send(msg);
+      this.logger.log(`Email sent to ${payload.to} [${payload.subject}]`);
+    } catch (error: any) {
+      this.logger.error(`Failed to send email to ${payload.to}`, error);
+      if (error.response) {
+        this.logger.error(
+          `SendGrid error body: ${JSON.stringify(error.response.body)}`,
+        );
+      }
     }
   }
 
-  private getLogoAttachment(): any | null {
+  /**
+   * Compiles a Handlebars template from the templates directory.
+   */
+  private async compileTemplate(
+    templateName: string,
+    context: Record<string, any>,
+  ): Promise<string> {
+    const templatePath = path.join(this.templatesDir, `${templateName}.hbs`);
+
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`Template not found: ${templatePath}`);
+    }
+
+    const templateSource = fs.readFileSync(templatePath, 'utf-8');
+    const compiledTemplate = Handlebars.compile(templateSource);
+    return compiledTemplate(context);
+  }
+
+  private getLogoAttachment(): SendGridAttachment | null {
     try {
       const logoPath = path.join(
         process.cwd(),
@@ -215,10 +275,13 @@ export class NotificationsService {
         'logo.png',
       );
       if (fs.existsSync(logoPath)) {
+        const logoBuffer = fs.readFileSync(logoPath);
         return {
+          content: logoBuffer.toString('base64'),
           filename: 'logo.png',
-          path: logoPath,
-          cid: 'logo',
+          type: 'image/png',
+          disposition: 'inline',
+          content_id: 'logo',
         };
       }
       this.logger.warn(`Logo not found at: ${logoPath}`);
@@ -229,17 +292,14 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Centralized logic to prepare data for order templates.
-   * Handles formatting, totals, and status labels.
-   */
+  // ─── ORDER CONTEXT BUILDER ─────────────────────────────────────────
+
   private buildOrderContext(
     input: OrderNotificationInput,
     subject: string,
   ): { context: OrderEmailContext; subject: string } {
     const currency = input.currency ?? 'COP';
 
-    // Format Items
     const items = input.items.map((item) => ({
       displayName: this.formatItemName(item.productName, item.variantName),
       quantity: item.quantity,
@@ -248,7 +308,6 @@ export class NotificationsService {
       lineTotalValue: this.toNumber(item.lineTotal) ?? 0,
     }));
 
-    // Calculate Totals if not provided
     const computedSubtotal = items.reduce(
       (sum, item) => sum + item.lineTotalValue,
       0,
@@ -262,9 +321,8 @@ export class NotificationsService {
       this.toNumber(input.totalAmount) ??
       subtotalValue + taxesValue + shippingValue - discountValue;
 
-    // Use OrderEmailContext structure
     const context: OrderEmailContext = {
-      ...input, // Contains basic order info (orderNumber, etc.)
+      ...input,
       customerName: input.customer.name,
       createdAtLabel: this.formatDate(input.createdAt),
       statusLabel: this.getStatusLabel(input.status),
@@ -279,7 +337,7 @@ export class NotificationsService {
     return { context, subject };
   }
 
-  // --- Helpers ---
+  // ─── HELPERS ───────────────────────────────────────────────────────
 
   private formatCurrency(value: number | string, currency: string): string {
     const numeric = typeof value === 'string' ? Number(value) : value;
@@ -306,7 +364,7 @@ export class NotificationsService {
 
   private getStatusLabel(status?: string): string {
     if (!status) return 'En proceso';
-    return ORDER_STATUS_LABELS[status] ?? status; // Returns original status if not found in map
+    return ORDER_STATUS_LABELS[status] ?? status;
   }
 
   private formatItemName(productName: string, variantName?: string): string {
