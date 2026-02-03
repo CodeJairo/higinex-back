@@ -47,7 +47,7 @@ export const envConfigSchema = Joi.object({
   ORDER_TAX_PERCENT: Joi.number().integer().min(0).max(100).default(19),
 
   EMAIL_PROVIDER: Joi.string()
-    .valid('SMTP', 'GMAIL', 'RESEND', 'DISABLED')
+    .valid('SMTP', 'GMAIL', 'RESEND', 'SENDGRID', 'DISABLED')
     .default('SMTP'),
   EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {
     not: 'DISABLED',
@@ -71,12 +71,17 @@ export const envConfigSchema = Joi.object({
     otherwise: Joi.optional(),
   }),
   SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
-    not: 'DISABLED',
+    is: Joi.valid('SMTP', 'GMAIL', 'RESEND'),
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
   SMTP_PASS: Joi.string().when('EMAIL_PROVIDER', {
-    not: 'DISABLED',
+    is: Joi.valid('SMTP', 'GMAIL', 'RESEND'),
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SENDGRID_API_KEY: Joi.string().when('EMAIL_PROVIDER', {
+    is: 'SENDGRID',
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),

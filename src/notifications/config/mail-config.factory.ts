@@ -45,6 +45,21 @@ export const getMailConfig = (configService: ConfigService) => {
         },
       };
 
+    case 'SENDGRID':
+      // SendGrid requires 'apikey' as literal username; password is your API key
+      return {
+        host: 'smtp.sendgrid.net',
+        port: 587,
+        secure: false, // 587 uses STARTTLS
+        auth: {
+          user: 'apikey',
+          pass: cleanEnv(configService.get<string>('SENDGRID_API_KEY')),
+        },
+        tls: {
+          rejectUnauthorized: true,
+        },
+      };
+
     case 'SMTP':
     default:
       return {
