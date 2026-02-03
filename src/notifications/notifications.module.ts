@@ -39,14 +39,17 @@ function cleanEnv(val: string | undefined): string | undefined {
           transport: {
             host: configService.get('SMTP_HOST', 'smtp.resend.com'),
             port: parseInt(configService.get('SMTP_PORT') || '587', 10),
-            secure: false, // true for 465, false for other ports
+            secure: false, // true for 465, false for other ports (STARTTLS)
             auth: {
               user: cleanEnv(configService.get<string>('SMTP_USER')),
               pass: cleanEnv(configService.get<string>('SMTP_PASS')),
             },
             tls: {
-              ciphers: 'SSLv3',
+              rejectUnauthorized: true,
             },
+            connectionTimeout: 60000, // 60 seconds connection timeout
+            greetingTimeout: 30000, // 30 seconds greeting timeout
+            socketTimeout: 60000, // 60 seconds socket timeout
             logger: isDev,
             debug: isDev,
           },
