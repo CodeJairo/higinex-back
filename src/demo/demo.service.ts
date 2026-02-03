@@ -11,7 +11,16 @@ import sgMail from '@sendgrid/mail';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceService } from '../notifications/invoice/invoice.service';
 import { DEMO_ACCOUNTS, DEMO_INITIAL_DATA } from './demo.constants';
-import { SendDemoInvoiceDto, NotifyDemoStatusDto } from './dto';
+import {
+  SendDemoInvoiceDto,
+  NotifyDemoStatusDto,
+  CreateDemoOrderDto,
+  UpdateDemoOrderStatusDto,
+  CreateDemoAddressDto,
+  UpdateDemoAddressDto,
+  AdjustDemoInventoryDto,
+  CreateDemoProductDto,
+} from './dto';
 
 @Injectable()
 export class DemoService {
@@ -189,6 +198,196 @@ export class DemoService {
     this.logger.log(`Demo status notification sent to ${demoEmail}`);
 
     return { success: true };
+  }
+
+  // ─── ADDRESSES METHODS ──────────────────────────────────────────────────
+
+  /**
+   * Creates a demo address (does NOT persist to database)
+   * Returns the address object with a generated demo ID
+   */
+  createDemoAddress(dto: CreateDemoAddressDto) {
+    const id = `demo-addr-${randomUUID()}`;
+
+    this.logger.log(`Demo address created with ID: ${id}`);
+
+    return {
+      id,
+      ...dto,
+      isDefault: dto.isDefault ?? false,
+    };
+  }
+
+  /**
+   * Updates a demo address (does NOT persist to database)
+   * Returns the echo of the updated body with the ID
+   */
+  updateDemoAddress(id: string, dto: UpdateDemoAddressDto) {
+    this.logger.log(`Demo address updated with ID: ${id}`);
+
+    return {
+      id,
+      ...dto,
+    };
+  }
+
+  // ─── ORDERS METHODS ─────────────────────────────────────────────────────
+
+  /**
+   * Creates a demo order (does NOT persist to database)
+   * Generates invoice PDF and sends it to the demo email if sendInvoice is true
+   */
+  async createDemoOrder(dto: CreateDemoOrderDto) {
+    const orderId = `demo-order-${randomUUID()}`;
+    const timestamp = Date.now();
+    const orderNumber = `DEMO-${timestamp}`;
+
+    const order = {
+      id: orderId,
+      orderNumber,
+      status: 'PENDING_PAYMENT',
+      items: dto.items,
+      subtotalAmount: dto.subtotalAmount,
+      totalAmount: dto.totalAmount,
+      shippingAddressId: dto.shippingAddressId,
+      shippingAddress: dto.shippingAddress,
+      customerNotes: dto.customerNotes,
+      customerName: dto.customerName || 'Cliente Demo',
+      createdAt: new Date().toISOString(),
+      isDemo: true,
+    };
+
+    this.logger.log(`Demo order created with ID: ${orderId}`);
+
+    // Send invoice if requested
+    if (dto.sendInvoice !== false) {
+      try {
+        await this.generateAndSendInvoice({
+          demoEmail: dto.demoEmail,
+          order: {
+            orderNumber,
+            customerName: order.customerName,
+            items: dto.items.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+            })),
+            subtotal: dto.subtotalAmount,
+            total: dto.totalAmount,
+            shippingAddress: dto.shippingAddress,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(`Failed to send invoice for demo order: ${error}`);
+        // Don't fail the order creation if email fails
+      }
+    }
+
+    return order;
+  }
+
+  /**
+   * Updates a demo order status and sends notification email
+   */
+  async updateDemoOrderStatus(orderId: string, dto: UpdateDemoOrderStatusDto) {
+    const statusLabels: Record<string, string> = {
+      PENDING_PAYMENT: 'Pendiente de pago',
+      PAID: 'Pagado',
+      PREPARING: 'En preparación',
+      SHIPPED: 'Enviado',
+      DELIVERED: 'Entregado',
+      CANCELED: 'Cancelado',
+      RETURN_REQUESTED: 'Devolución solicitada',
+      RETURNED: 'Devuelto',
+      REFUNDED: 'Reembolsado',
+    };
+
+    try {
+      await this.sendDemoEmail({
+        to: dto.customerEmail,
+        subject: `[DEMO] Actualización de pedido #${dto.orderNumber}`,
+        template: 'order-status-changed',
+        context: {
+          orderNumber: dto.orderNumber,
+          statusLabel: statusLabels[dto.status] || dto.status,
+          customerName: dto.customerName,
+          createdAtLabel: this.formatDate(new Date()),
+          logoUrl: '',
+          year: new Date().getFullYear(),
+          isDemo: true,
+        },
+      });
+
+      this.logger.log(`Demo order status updated: ${orderId} -> ${dto.status}`);
+    } catch (error) {
+      this.logger.warn(`Failed to send status notification: ${error}`);
+    }
+
+    return {
+      ok: true,
+      orderId,
+      status: dto.status,
+      statusLabel: statusLabels[dto.status] || dto.status,
+    };
+  }
+
+  // ─── INVENTORY METHODS ──────────────────────────────────────────────────
+
+  /**
+   * Simulates an inventory adjustment (does NOT persist to database)
+   */
+  adjustDemoInventory(dto: AdjustDemoInventoryDto) {
+    this.logger.log(
+      `Demo inventory adjusted: ${dto.variantId} by ${dto.quantity}`,
+    );
+
+    return {
+      ok: true,
+      message: `Inventory adjusted by ${dto.quantity} units for variant ${dto.variantId}`,
+      adjustment: {
+        id: `demo-adjustment-${randomUUID()}`,
+        variantId: dto.variantId,
+        quantity: dto.quantity,
+        reason: dto.reason,
+        notes: dto.notes,
+        createdAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  // ─── PRODUCTS METHODS ───────────────────────────────────────────────────
+
+  /**
+   * Simulates creating a product (does NOT persist to database)
+   */
+  createDemoProduct(dto: CreateDemoProductDto) {
+    const productId = `demo-prod-${randomUUID()}`;
+    const slug = dto.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    const variants = (dto.variants || []).map((v) => ({
+      id: `demo-var-${randomUUID()}`,
+      sku: v.sku,
+      name: v.name,
+      isActive: true,
+    }));
+
+    this.logger.log(`Demo product created with ID: ${productId}`);
+
+    return {
+      id: productId,
+      name: dto.name,
+      slug,
+      description: dto.description,
+      status: 'PUBLISHED',
+      variants,
+      images: [],
+      createdAt: new Date().toISOString(),
+      isDemo: true,
+    };
   }
 
   // ─── PRIVATE HELPERS ─────────────────────────────────────────────────
