@@ -15,17 +15,23 @@ import { NotificationsService } from './notifications.service';
       useFactory: (configService: ConfigService) => {
         const isDev = configService.get('NODE_ENV') === 'development';
 
-        // 🔍 DEBUG - Imprime la configuración SMTP
-        console.log('📧 EMAIL CONFIG:', {
-          host: configService.get('SMTP_HOST') || 'smtp.resend.com',
-          port: configService.get('SMTP_PORT') || '587',
-          user: configService.get('SMTP_USER'),
-          hasPass: !!configService.get('SMTP_PASS'),
-          from: configService.get('EMAIL_FROM'),
+        const transportConfig = getMailConfig(configService);
+        const provider = configService.get('EMAIL_PROVIDER');
+
+        // 🔍 DEBUG - Imprime la configuración REAL que se usará
+        console.log('📧 EMAIL CONFIG (Actual):', {
+          provider,
+          config: {
+            ...transportConfig,
+            auth: {
+              user: transportConfig.auth?.user,
+              pass: transportConfig.auth?.pass ? '******' : undefined, // Hide password
+            },
+          },
         });
 
         return {
-          transport: getMailConfig(configService),
+          transport: transportConfig,
           defaults: {
             from: configService.get('EMAIL_FROM'),
           },
