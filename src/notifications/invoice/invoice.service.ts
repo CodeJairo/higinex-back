@@ -77,6 +77,8 @@ export class InvoiceService {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
         ],
         ...(process.env.PUPPETEER_EXECUTABLE_PATH && {
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -85,7 +87,9 @@ export class InvoiceService {
 
       const page = await browser.newPage();
       await page.setContent(htmlContent, {
-        waitUntil: 'networkidle0',
+        // waitUntil: 'networkidle0',
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
       });
 
       const pdfBuffer = await page.pdf(INVOICE_PDF_OPTIONS);

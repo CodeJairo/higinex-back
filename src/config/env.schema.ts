@@ -46,27 +46,37 @@ export const envConfigSchema = Joi.object({
     .default(10),
   ORDER_TAX_PERCENT: Joi.number().integer().min(0).max(100).default(19),
 
-  EMAIL_PROVIDER: Joi.string().valid('SMTP', 'DISABLED').default('SMTP'),
+  EMAIL_PROVIDER: Joi.string()
+    .valid('SMTP', 'GMAIL', 'RESEND', 'DISABLED')
+    .default('SMTP'),
   EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {
-    is: 'SMTP',
+    not: 'DISABLED',
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
   COMPANY_ORDERS_EMAIL: Joi.string().email().when('EMAIL_PROVIDER', {
-    is: 'SMTP',
+    not: 'DISABLED',
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
 
-  SMTP_HOST: Joi.string().default('smtp.resend.com'),
-  SMTP_PORT: Joi.number().port().default(587),
-  SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
+  SMTP_HOST: Joi.string().when('EMAIL_PROVIDER', {
     is: 'SMTP',
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
-  SMTP_PASS: Joi.string().when('EMAIL_PROVIDER', {
+  SMTP_PORT: Joi.number().port().when('EMAIL_PROVIDER', {
     is: 'SMTP',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_USER: Joi.string().when('EMAIL_PROVIDER', {
+    not: 'DISABLED',
+    then: Joi.required(),
+    otherwise: Joi.optional(),
+  }),
+  SMTP_PASS: Joi.string().when('EMAIL_PROVIDER', {
+    not: 'DISABLED',
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),

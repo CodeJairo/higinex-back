@@ -3,20 +3,9 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'path';
+import { getMailConfig } from './config/mail-config.factory';
 import { InvoiceService } from './invoice/invoice.service';
 import { NotificationsService } from './notifications.service';
-
-function cleanEnv(val: string | undefined): string | undefined {
-  if (!val) return undefined;
-  const trimmed = val.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
 
 @Module({
   imports: [
@@ -36,20 +25,7 @@ function cleanEnv(val: string | undefined): string | undefined {
         });
 
         return {
-          transport: {
-            host: configService.get('SMTP_HOST', 'smtp.resend.com'),
-            port: parseInt(configService.get('SMTP_PORT') || '587', 10),
-            secure: false, // true for 465, false for other ports
-            auth: {
-              user: cleanEnv(configService.get<string>('SMTP_USER')),
-              pass: cleanEnv(configService.get<string>('SMTP_PASS')),
-            },
-            tls: {
-              ciphers: 'SSLv3',
-            },
-            logger: isDev,
-            debug: isDev,
-          },
+          transport: getMailConfig(configService),
           defaults: {
             from: configService.get('EMAIL_FROM'),
           },
