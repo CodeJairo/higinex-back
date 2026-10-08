@@ -52,9 +52,12 @@ export class AuthService {
       const { email, password, customer } = registerUserDto;
 
       const saltRounds = this.configService.get<number>('SALT_ROUNDS')!;
+      const isEmailDisabled = this.emailService.isEmailDisabled;
+
       const data: Prisma.UserCreateInput = {
         email,
         password: await bcrypt.hash(password, saltRounds),
+        ...(isEmailDisabled ? { emailVerifiedAt: new Date() } : {}),
         ...(customer && { customer: { create: customer } }),
       };
 
@@ -62,8 +65,20 @@ export class AuthService {
         data,
         include: { customer: true },
       });
-      await this.sendEmailVerificationLink(user);
-      return { message: 'User registered successfully' };
+
+      if (!isEmailDisabled) {
+        await this.sendEmailVerificationLink(user);
+      } else {
+        this.logger.log(
+          `[EMAIL_DISABLED] Usuario ${user.email} registrado y auto-verificado (Servicio de correos temporalmente inactivo).`,
+        );
+      }
+
+      return {
+        message: isEmailDisabled
+          ? 'Usuario registrado exitosamente (verificación automática activa debido a servicio de correos temporalmente inactivo).'
+          : 'User registered successfully',
+      };
     } catch (error) {
       handlePrismaError(error, {
         logger: this.logger,
@@ -97,10 +112,20 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials - password');
 
       if (!user.emailVerifiedAt) {
-        await this.sendEmailVerificationLink(user);
-        throw new ForbiddenException(
-          'Email not verified. A new verification link has been sent if allowed by cooldown.',
-        );
+        if (this.emailService.isEmailDisabled) {
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerifiedAt: new Date() },
+          });
+          this.logger.log(
+            `[EMAIL_DISABLED] Usuario ${user.email} auto-verificado durante login por servicio de correos inactivo.`,
+          );
+        } else {
+          await this.sendEmailVerificationLink(user);
+          throw new ForbiddenException(
+            'Email not verified. A new verification link has been sent if allowed by cooldown.',
+          );
+        }
       }
 
       const { accessToken, refreshToken } = await this.issueTokens({
@@ -217,6 +242,15 @@ export class AuthService {
   }
 
   async requestPasswordReset(requestEmailDto: RequestEmailDto) {
+    if (this.emailService.isEmailDisabled) {
+      this.logger.warn(
+        `[EMAIL_DISABLED] Solicitud de restablecimiento de contraseña para ${requestEmailDto.email} cancelada: servicio de correos inactivo.`,
+      );
+      throw new BadRequestException(
+        'El servicio de envío de correos electrónicos está temporalmente desactivado. Por favor, comunícate con el administrador para recuperar tu cuenta.',
+      );
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { email: requestEmailDto.email },
     });

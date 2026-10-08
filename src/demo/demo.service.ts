@@ -51,7 +51,7 @@ export class DemoService {
 
     if (!user) {
       throw new NotFoundException(
-        `Demo account not configured. Please run seed with SEED_DEMO=true`,
+        `Demo account not configured. Please run 'pnpm seed:data'`,
       );
     }
 
@@ -94,6 +94,16 @@ export class DemoService {
    */
   async generateAndSendInvoice(dto: SendDemoInvoiceDto) {
     const { demoEmail, order } = dto;
+
+    if (this.configService.get<string>('EMAIL_PROVIDER') === 'DISABLED') {
+      this.logger.log(
+        `[EMAIL_DISABLED] Envío de factura demo omitido a ${demoEmail} para la orden #${order.orderNumber} (EMAIL_PROVIDER=DISABLED).`,
+      );
+      return {
+        success: true,
+        message: 'La función de envío de correos está desactivada temporalmente (sin SendGrid).',
+      };
+    }
 
     // Build context for invoice generation (simplified for demo)
     const currency = 'COP';
@@ -160,6 +170,16 @@ export class DemoService {
    */
   async sendStatusNotification(dto: NotifyDemoStatusDto) {
     const { demoEmail, orderNumber, oldStatus, newStatus } = dto;
+
+    if (this.configService.get<string>('EMAIL_PROVIDER') === 'DISABLED') {
+      this.logger.log(
+        `[EMAIL_DISABLED] Notificación de estado demo omitida a ${demoEmail} (EMAIL_PROVIDER=DISABLED).`,
+      );
+      return {
+        success: true,
+        message: 'La función de envío de correos está desactivada temporalmente (sin SendGrid).',
+      };
+    }
 
     const statusLabels: Record<string, string> = {
       PENDING_PAYMENT: 'Pendiente de pago',
@@ -269,6 +289,13 @@ export class DemoService {
       disposition: 'attachment' | 'inline';
     }>;
   }) {
+    if (this.configService.get<string>('EMAIL_PROVIDER') === 'DISABLED') {
+      this.logger.log(
+        `[EMAIL_DISABLED] sendDemoEmail omitido a ${payload.to} [${payload.subject}] (EMAIL_PROVIDER=DISABLED).`,
+      );
+      return;
+    }
+
     const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
     const emailFrom = this.configService.get<string>('EMAIL_FROM') || '';
 

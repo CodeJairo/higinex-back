@@ -13,7 +13,6 @@ import { OrdersModule } from './orders/orders.module';
 import { PricingModule } from './pricing/pricing.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
-import { SeedModule } from './seed/seed.module';
 import { UsersModule } from './users/users.module';
 import { FinanceModule } from './finance/finance.module';
 
@@ -35,7 +34,6 @@ import { FinanceModule } from './finance/finance.module';
     ]),
     PrismaModule,
     AuthModule,
-    SeedModule,
     ProductsModule,
     PricingModule,
     InventoryModule,

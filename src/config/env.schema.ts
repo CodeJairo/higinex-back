@@ -24,19 +24,10 @@ export const envConfigSchema = Joi.object({
 
   SALT_ROUNDS: Joi.number().integer().min(8).max(15).required(),
 
-  SEED_ADMIN: Joi.boolean().truthy('true').falsy('false').default(false),
-
-  ADMIN_EMAIL: Joi.string().email().when('SEED_ADMIN', {
-    is: true,
-    then: Joi.required(),
-    otherwise: Joi.optional(),
-  }),
-
-  ADMIN_PASSWORD: Joi.string().min(8).when('SEED_ADMIN', {
-    is: true,
-    then: Joi.required(),
-    otherwise: Joi.optional(),
-  }),
+  ADMIN_EMAIL: Joi.string().email().optional().default('admin@higinex.com'),
+  ADMIN_PASSWORD: Joi.string().min(8).optional().default('Admin123*'),
+  TEST_CLIENT_EMAIL: Joi.string().email().optional().default('cliente-demo@higinex.com'),
+  TEST_CLIENT_PASSWORD: Joi.string().min(6).optional().default('demo123'),
 
   RESERVATION_TTL_MINUTES: Joi.number().integer().min(30).max(240).default(120),
   RESERVATION_CLEANUP_INTERVAL_MINUTES: Joi.number()
@@ -48,7 +39,7 @@ export const envConfigSchema = Joi.object({
 
   EMAIL_PROVIDER: Joi.string()
     .valid('SMTP', 'GMAIL', 'RESEND', 'SENDGRID', 'DISABLED')
-    .default('SMTP'),
+    .default('DISABLED'),
   EMAIL_FROM: Joi.string().email().when('EMAIL_PROVIDER', {
     not: 'DISABLED',
     then: Joi.required(),
@@ -85,7 +76,7 @@ export const envConfigSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional(),
   }),
-  EMAIL_VERIFY_URL: Joi.string().required(),
+  EMAIL_VERIFY_URL: Joi.string().default('http://localhost:4200/auth/verify?token={token}'),
   FRONTEND_URL: Joi.string().uri().optional(),
 
   SWAGGER_USER: Joi.string().default('admin'),

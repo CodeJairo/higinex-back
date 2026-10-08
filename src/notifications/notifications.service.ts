@@ -44,7 +44,18 @@ export class NotificationsService implements OnModuleInit {
     );
   }
 
+  get isEmailDisabled(): boolean {
+    return this.configService.get<string>('EMAIL_PROVIDER') === 'DISABLED';
+  }
+
   onModuleInit() {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        '[EMAIL_DISABLED] El proveedor de correos está configurado como DISABLED. No se realizarán envíos de correos electrónicos ni se consumirá SendGrid.',
+      );
+      return;
+    }
+
     const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
     if (!apiKey) {
       this.logger.warn('SENDGRID_API_KEY is not configured. Emails will fail.');
@@ -57,6 +68,12 @@ export class NotificationsService implements OnModuleInit {
   // ─── PUBLIC METHODS ────────────────────────────────────────────────
 
   async sendOrderCreatedToCompany(input: OrderNotificationInput) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Se omitió el envío de notificación de orden a la empresa para la orden #${input.orderNumber} (Servicio de correos inactivo).`,
+      );
+      return;
+    }
     this.handleSendOrderCreatedToCompany(input).catch((err) =>
       this.logger.error(
         `Failed to send order created email to company: ${err.message}`,
@@ -66,6 +83,12 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async sendOrderCreatedToCustomer(input: OrderNotificationInput) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Se omitió el envío de factura y confirmación a ${input.customer?.email} para la orden #${input.orderNumber} (Servicio de correos inactivo).`,
+      );
+      return;
+    }
     this.handleSendOrderCreatedToCustomer(input).catch((err) =>
       this.logger.error(
         `Failed to send order created email to customer: ${err.message}`,
@@ -75,6 +98,12 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async sendOrderStatusChangedToCustomer(input: OrderNotificationInput) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Se omitió el envío de cambio de estado de orden a ${input.customer?.email} para la orden #${input.orderNumber} (Servicio de correos inactivo).`,
+      );
+      return;
+    }
     this.handleSendOrderStatusChangedToCustomer(input).catch((err) =>
       this.logger.error(
         `Failed to send order status change email: ${err.message}`,
@@ -84,6 +113,12 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async sendEmailVerificationLink(input: EmailVerificationLinkInput) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Se omitió el envío de verificación de correo a ${input.email} (Servicio de correos inactivo).`,
+      );
+      return;
+    }
     this.handleSendEmailVerificationLink(input).catch((err) =>
       this.logger.error(
         `Failed to send email verification link: ${err.message}`,
@@ -93,6 +128,12 @@ export class NotificationsService implements OnModuleInit {
   }
 
   async sendPasswordResetCode(input: AuthCodeEmailInput) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Se omitió el envío de código de recuperación a ${input.email} (Servicio de correos inactivo). Código generado: ${input.code}`,
+      );
+      return;
+    }
     this.handleSendPasswordResetCode(input).catch((err) =>
       this.logger.error(
         `Failed to send password reset code: ${err.message}`,
@@ -210,6 +251,13 @@ export class NotificationsService implements OnModuleInit {
     payload: EmailPayload,
     attachments: SendGridAttachment[] = [],
   ) {
+    if (this.isEmailDisabled) {
+      this.logger.log(
+        `[EMAIL_DISABLED] Envío de correo omitido a ${payload.to} [${payload.subject}] (EMAIL_PROVIDER=DISABLED)`,
+      );
+      return;
+    }
+
     try {
       const logoAttachment = this.getLogoAttachment();
       const allAttachments = logoAttachment
